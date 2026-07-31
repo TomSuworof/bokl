@@ -2,6 +2,8 @@ package com.salat.bokl
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -9,16 +11,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.AnnotatedString
@@ -50,15 +57,20 @@ fun BookReaderScreen(
     }
 
     val state by viewModel.state.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
+
+    val background = state.background.background
+    val textColor = state.background.textColor
 
     val textStyle = TextStyle(
         fontFamily = FontFamily.Serif,
         fontSize = 18.sp,
         textAlign = TextAlign.Justify,
-        color = MaterialTheme.colorScheme.onSurface
+        color = textColor
     )
 
     Scaffold(
+        containerColor = background,
         topBar = {
             TopAppBar(
                 title = {},
@@ -67,9 +79,33 @@ fun BookReaderScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        }
+                        DropdownMenu(
+                            expanded = showSettings,
+                            onDismissRequest = { showSettings = false }
+                        ) {
+                            ReaderBackground.entries.forEach { option ->
+                                BackgroundOptionRow(
+                                    option = option,
+                                    selected = option == state.background,
+                                    onClick = {
+                                        viewModel.setBackground(option)
+                                        showSettings = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    containerColor = background,
+                    titleContentColor = textColor,
+                    navigationIconContentColor = textColor,
+                    actionIconContentColor = textColor
                 )
             )
         }
@@ -108,6 +144,7 @@ fun BookReaderScreen(
                         content = state.content,
                         coverImagePath = state.coverImagePath,
                         textStyle = textStyle,
+                        pageCounterColor = textColor.copy(alpha = 0.6f),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 20.dp, vertical = 16.dp)
@@ -133,6 +170,7 @@ private fun PaginatedReader(
     content: AnnotatedString,
     coverImagePath: String?,
     textStyle: TextStyle,
+    pageCounterColor: Color,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -197,7 +235,7 @@ private fun PaginatedReader(
                         text = "No readable content",
                         modifier = Modifier.align(Alignment.Center),
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = textStyle.color
                     )
                 }
                 coverImagePath == null && pages.isEmpty() -> {
@@ -263,7 +301,7 @@ private fun PaginatedReader(
             Text(
                 text = if (totalPages == 0) "" else "${pagerState.currentPage + 1} / $totalPages",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = pageCounterColor
             )
         }
     }
@@ -289,6 +327,41 @@ private fun CoverPage(imagePath: String, modifier: Modifier = Modifier) {
             CircularProgressIndicator()
         }
     }
+}
+
+@Composable
+private fun BackgroundOptionRow(
+    option: ReaderBackground,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(option.background)
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = option.textColor
+                    )
+                }
+            }
+        },
+        onClick = onClick
+    )
 }
 
 private const val PAGINATION_WINDOW_CHARS = 10_000
