@@ -12,6 +12,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -280,11 +281,13 @@ private fun PaginatedReader(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
-                                Text(
-                                    text = pages.getOrElse(page - coverOffset) { AnnotatedString("") },
-                                    modifier = Modifier.fillMaxSize(),
-                                    style = textStyle
-                                )
+                                SelectionContainer {
+                                    Text(
+                                        text = pages.getOrElse(page - coverOffset) { AnnotatedString("") },
+                                        modifier = Modifier.fillMaxSize(),
+                                        style = textStyle
+                                    )
+                                }
                             }
                         }
                     }
