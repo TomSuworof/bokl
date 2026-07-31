@@ -18,6 +18,8 @@ import org.jsoup.nodes.TextNode
 
 private const val FONT_NORMAL = 0
 private const val FONT_ITALIC = 1
+private const val ZERO_WIDTH_SPACE = "\u200B"
+private const val CHAPTER_GAP_FLOOR_EM = 1.0f
 
 private val WHITESPACE = Regex("\\s+")
 private val COMMENT_REGEX = Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)
@@ -25,6 +27,7 @@ private val BLOCK_REGEX = Regex("""([^{}]+)\{([^{}]*)\}""")
 private val COMPOUND_REGEX = Regex("""#([\w-]+)|\.([\w-]+)|([a-zA-Z][\w-]*)|(\*)""")
 private val FONT_SIZE_REGEX = Regex("""^(-?\d+(?:\.\d+)?)\s*(px|pt|pc|em|rem|ex|%)$""")
 private val TEXT_INDENT_REGEX = Regex("""^(-?\d+(?:\.\d+)?)\s*(em|rem|px|pt|pc|%)?$""")
+private val LENGTH_REGEX = Regex("""^(-?\d+(?:\.\d+)?)\s*(em|rem|px|pt|pc|ex|%)?$""")
 
 private val BLOCK_TAGS = setOf(
     "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -47,7 +50,10 @@ private data class ComputedStyle(
     val textIndentEm: Float? = null,
     val textAlign: TextAlign? = null,
     val baselineShift: BaselineShift? = null,
-    val pre: Boolean = false
+    val pre: Boolean = false,
+    val marginTopBaseEm: Float = 0f,
+    val marginBottomBaseEm: Float = 0f,
+    val blockHeightBaseEm: Float? = null
 )
 
 private data class CssCompound(val id: String?, val classes: List<String>, val tags: List<String>)
@@ -61,7 +67,19 @@ private data class CssRule(
 
 internal object EpubStyler {
 
-    fun renderChapter(html: String, loadCss: (String) -> String?): AnnotatedString {
+    fun renderChapter(
+        html: String,
+        loadCss: (String) -> String?,
+        isFirstChapter: Boolean = true,
+        previousBottomMarginEm: Float = 0f
+    ): AnnotatedString = renderChapterAndTrailingMargin(html, loadCss, isFirstChapter, previousBottomMarginEm).first
+
+    internal fun renderChapterAndTrailingMargin(
+        html: String,
+        loadCss: (String) -> String?,
+        isFirstChapter: Boolean = true,
+        previousBottomMarginEm: Float = 0f
+    ): Pair<AnnotatedString, Float> {
         val doc = Jsoup.parse(html)
         val cssTexts = mutableListOf<String>()
         doc.select("style").forEach { style ->
@@ -74,11 +92,41 @@ internal object EpubStyler {
             }
         }
         val rules = parseRules(cssTexts)
-        val acc = Accumulator()
+        val acc = Accumulator(isFirstChapter, previousBottomMarginEm)
+        val elementStyles = mutableMapOf<Element, ComputedStyle>()
         for (child in doc.body().childNodes()) {
-            renderNode(child, ComputedStyle(), rules, acc)
+            renderNode(child, ComputedStyle(), rules, acc, elementStyles)
         }
-        return acc.toAnnotatedString()
+        return mergeParagraphBreaks(acc.toAnnotatedString()) to acc.pendingBottomBaseEm
+    }
+
+    private fun mergeParagraphBreaks(annotated: AnnotatedString): AnnotatedString {
+        val text = annotated.text
+        if (text.isEmpty() || annotated.paragraphStyles.isEmpty()) return annotated
+        val remove = mutableSetOf<Int>()
+        for (r in annotated.paragraphStyles) {
+            for (p in intArrayOf(r.end - 1, r.end, r.start - 1)) {
+                if (p in text.indices && text[p] == '\n') remove.add(p)
+            }
+        }
+        if (remove.isEmpty()) return annotated
+        val newText = StringBuilder(text.length)
+        val removedBefore = IntArray(text.length + 1)
+        var removed = 0
+        for (i in text.indices) {
+            removedBefore[i] = removed
+            if (text[i] == '\n' && i in remove) removed++ else newText.append(text[i])
+        }
+        removedBefore[text.length] = removed
+        fun mapStart(start: Int) = start - removedBefore[start]
+        fun mapEnd(start: Int, end: Int) = mapStart(start) + (end - start - (removedBefore[end] - removedBefore[start]))
+        val spans = annotated.spanStyles.map { r ->
+            AnnotatedString.Range(r.item, mapStart(r.start), mapEnd(r.start, r.end))
+        }
+        val paragraphs = annotated.paragraphStyles.map { r ->
+            AnnotatedString.Range(r.item, mapStart(r.start), mapEnd(r.start, r.end))
+        }
+        return AnnotatedString(newText.toString(), spans, paragraphs)
     }
 
     private fun isExternalPath(href: String): Boolean {
@@ -87,14 +135,26 @@ internal object EpubStyler {
             lower.startsWith("//") || lower.startsWith("data:")
     }
 
-    private fun renderNode(node: Node, parentStyle: ComputedStyle, rules: List<CssRule>, acc: Accumulator) {
+    private fun renderNode(
+        node: Node,
+        parentStyle: ComputedStyle,
+        rules: List<CssRule>,
+        acc: Accumulator,
+        elementStyles: MutableMap<Element, ComputedStyle>
+    ) {
         when (node) {
             is TextNode -> renderTextNode(node, parentStyle, acc)
-            is Element -> renderElement(node, parentStyle, rules, acc)
+            is Element -> renderElement(node, parentStyle, rules, acc, elementStyles)
         }
     }
 
-    private fun renderElement(elem: Element, parentStyle: ComputedStyle, rules: List<CssRule>, acc: Accumulator) {
+    private fun renderElement(
+        elem: Element,
+        parentStyle: ComputedStyle,
+        rules: List<CssRule>,
+        acc: Accumulator,
+        elementStyles: MutableMap<Element, ComputedStyle>
+    ) {
         val tag = elem.tagName().lowercase()
         if (tag == "img") return
         if (tag == "br") {
@@ -107,22 +167,80 @@ internal object EpubStyler {
         }
 
         val style = computeStyle(elem, parentStyle, rules)
+        elementStyles[elem] = style
         val isBlock = tag in BLOCK_TAGS
         val isParagraph = tag in PARAGRAPH_TAGS
 
         if (isBlock && !acc.atLineStart) acc.appendBreak(1)
 
+        val (marginTop, marginBottom) = if (isParagraph) {
+            effectiveMargins(elem, style, elementStyles)
+        } else {
+            0f to 0f
+        }
+        if (isParagraph) acc.resolveParagraphGap(marginTop)
         val paraStart = if (isParagraph) acc.text.length else -1
         for (child in elem.childNodes()) {
-            renderNode(child, style, rules, acc)
+            renderNode(child, style, rules, acc, elementStyles)
         }
 
         if (isBlock) {
+            val isEmptyPara = isParagraph && paraStart >= 0 && acc.text.length == paraStart
+            if (isEmptyPara && style.blockHeightBaseEm != null) acc.appendSpacerContent()
             acc.endBlock()
             if (isParagraph && paraStart >= 0 && acc.text.length > paraStart) {
-                acc.addParagraphRanges(paraStart, acc.text.length, style.textAlign, style.textIndentEm?.times(style.fontSizeScale))
+                if (isEmptyPara && style.blockHeightBaseEm != null) {
+                    acc.addParagraphRanges(paraStart, acc.text.length, null, null, style.blockHeightBaseEm)
+                } else {
+                    acc.addParagraphRanges(paraStart, acc.text.length, style.textAlign, style.textIndentEm?.times(style.fontSizeScale))
+                }
+                acc.pendingBottomBaseEm = marginBottom
             }
         }
+    }
+
+    private fun effectiveMargins(
+        elem: Element,
+        style: ComputedStyle,
+        elementStyles: MutableMap<Element, ComputedStyle>
+    ): Pair<Float, Float> {
+        var top = style.marginTopBaseEm
+        var bottom = style.marginBottomBaseEm
+        var cur: Element = elem
+        var parent: Element? = elem.parent()
+        var topChain = true
+        var bottomChain = true
+        while (parent != null) {
+            val pStyle = elementStyles[parent] ?: break
+            val isFirst = topChain && isFirstFlowChild(parent, cur)
+            val isLast = bottomChain && isLastFlowChild(parent, cur)
+            if (!isFirst && !isLast) break
+            if (isFirst) top = maxOf(top, pStyle.marginTopBaseEm)
+            if (isLast) bottom = maxOf(bottom, pStyle.marginBottomBaseEm)
+            topChain = isFirst
+            bottomChain = isLast
+            cur = parent
+            parent = parent.parent()
+        }
+        return top to bottom
+    }
+
+    private fun isFirstFlowChild(parent: Element, child: Element): Boolean {
+        for (node in parent.childNodes()) {
+            if (node === child) return true
+            if (node is TextNode && node.wholeText.isBlank()) continue
+            return false
+        }
+        return false
+    }
+
+    private fun isLastFlowChild(parent: Element, child: Element): Boolean {
+        for (node in parent.childNodes().reversed()) {
+            if (node === child) return true
+            if (node is TextNode && node.wholeText.isBlank()) continue
+            return false
+        }
+        return false
     }
 
     private fun renderTextNode(node: TextNode, style: ComputedStyle, acc: Accumulator) {
@@ -168,7 +286,11 @@ internal object EpubStyler {
     }
 
     private fun applyTagDefaults(parent: ComputedStyle, tag: String): ComputedStyle {
-        var s = parent
+        var s = parent.copy(
+            marginTopBaseEm = 0f,
+            marginBottomBaseEm = 0f,
+            blockHeightBaseEm = null
+        )
         when (tag) {
             "sup" -> s = s.copy(baselineShift = BaselineShift.Superscript)
             "sub" -> s = s.copy(baselineShift = BaselineShift.Subscript)
@@ -225,6 +347,13 @@ internal object EpubStyler {
                 style.copy(fontSizeScale = if (relative) style.fontSizeScale * size else size)
             }
             "text-indent" -> style.copy(textIndentEm = parseTextIndent(value))
+            "margin" -> {
+                val (top, bottom) = parseMarginShorthand(value, style.fontSizeScale)
+                style.copy(marginTopBaseEm = top, marginBottomBaseEm = bottom)
+            }
+            "margin-top" -> style.copy(marginTopBaseEm = parseLengthBaseEm(value, style.fontSizeScale) ?: style.marginTopBaseEm)
+            "margin-bottom" -> style.copy(marginBottomBaseEm = parseLengthBaseEm(value, style.fontSizeScale) ?: style.marginBottomBaseEm)
+            "height" -> style.copy(blockHeightBaseEm = parseLengthBaseEm(value, style.fontSizeScale))
             "text-align" -> style.copy(
                 textAlign = when (value.lowercase()) {
                     "left" -> TextAlign.Left
@@ -255,6 +384,35 @@ internal object EpubStyler {
             }
         }
         return null
+    }
+
+    private fun parseLengthBaseEm(value: String, scale: Float): Float? {
+        val v = value.trim().lowercase()
+        if (v == "auto" || v.isEmpty()) return null
+        val m = LENGTH_REGEX.find(v) ?: return null
+        val num = m.groupValues[1].toFloat()
+        val em = when (m.groupValues[2]) {
+            "em", "rem" -> num
+            "px" -> num / 16f
+            "pt" -> num * 4f / 3f / 16f
+            "pc" -> num
+            "ex" -> num * 0.5f
+            "%" -> num / 100f
+            "" -> num / 16f
+            else -> return null
+        }
+        return em * scale
+    }
+
+    private fun parseMarginShorthand(value: String, scale: Float): Pair<Float, Float> {
+        val parts = value.trim().split(WHITESPACE).mapNotNull { parseLengthBaseEm(it, scale) }
+        if (parts.isEmpty()) return 0f to 0f
+        return when (parts.size) {
+            1 -> parts[0] to parts[0]
+            2 -> parts[0] to parts[0]
+            3 -> parts[0] to parts[2]
+            else -> parts[0] to parts[2]
+        }
     }
 
     private fun parseFontSize(value: String): Pair<Boolean, Float> {
@@ -393,12 +551,16 @@ internal object EpubStyler {
         return styles
     }
 
-    private class Accumulator {
+    private class Accumulator(
+        val skipTopIfEmpty: Boolean = true,
+        previousBottomMarginEm: Float = 0f
+    ) {
         val text = StringBuilder()
         val spans = mutableListOf<AnnotatedString.Range<SpanStyle>>()
         val paragraphs = mutableListOf<AnnotatedString.Range<ParagraphStyle>>()
         var atLineStart = true
             private set
+        var pendingBottomBaseEm = if (skipTopIfEmpty) 0f else maxOf(previousBottomMarginEm, CHAPTER_GAP_FLOOR_EM)
 
         fun appendText(s: String) {
             val clean = if (atLineStart) s.trimStart() else s
@@ -425,23 +587,36 @@ internal object EpubStyler {
             atLineStart = true
         }
 
-        fun addParagraphRanges(start: Int, end: Int, align: TextAlign?, textIndentEm: Float?) {
-            if (align == null && textIndentEm == null) return
+        fun appendSpacerContent() {
+            text.append(ZERO_WIDTH_SPACE)
+            atLineStart = true
+        }
+
+        fun addSpacing(em: Float) {
+            if (em <= 0f) return
+            val start = text.length
+            text.append(ZERO_WIDTH_SPACE)
+            atLineStart = true
+            paragraphs.add(AnnotatedString.Range(ParagraphStyle(lineHeight = em.em), start, start + 1))
+        }
+
+        fun resolveParagraphGap(topBaseEm: Float) {
+            val gap = if (skipTopIfEmpty && text.isEmpty()) 0f else maxOf(pendingBottomBaseEm, topBaseEm)
+            pendingBottomBaseEm = 0f
+            addSpacing(gap)
+        }
+
+        fun addParagraphRanges(start: Int, end: Int, align: TextAlign?, textIndentEm: Float?, lineHeightEm: Float? = null) {
+            if (align == null && textIndentEm == null && lineHeightEm == null) return
             var paragraphStyle = ParagraphStyle()
             if (align != null) paragraphStyle = paragraphStyle.merge(ParagraphStyle(textAlign = align))
             if (textIndentEm != null) {
                 paragraphStyle = paragraphStyle.merge(ParagraphStyle(textIndent = TextIndent(firstLine = textIndentEm.em)))
             }
-            var p = start
-            while (p < end) {
-                val nl = text.indexOf("\n", p)
-                if (nl < 0 || nl >= end) {
-                    paragraphs.add(AnnotatedString.Range(paragraphStyle, p, end))
-                    break
-                }
-                paragraphs.add(AnnotatedString.Range(paragraphStyle, p, nl + 1))
-                p = nl + 1
+            if (lineHeightEm != null) {
+                paragraphStyle = paragraphStyle.merge(ParagraphStyle(lineHeight = lineHeightEm.em))
             }
+            paragraphs.add(AnnotatedString.Range(paragraphStyle, start, end))
         }
 
         fun toAnnotatedString(): AnnotatedString {

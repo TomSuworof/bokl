@@ -5,14 +5,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.isSpecified
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EpubStylerTest {
 
-    private fun render(html: String): androidx.compose.ui.text.AnnotatedString {
-        return EpubStyler.renderChapter(html) { null }
+    private fun render(html: String, isFirstChapter: Boolean = true): androidx.compose.ui.text.AnnotatedString {
+        return EpubStyler.renderChapter(html, { null }, isFirstChapter)
     }
 
     @Test
@@ -135,32 +136,35 @@ class EpubStylerTest {
     }
 
     @Test
-    fun `br after paragraph does not create blank line between paragraphs`() {
+    fun `br between paragraphs does not add a blank line`() {
         val result = render("<p>First.</p><br><p>Second.</p>")
-        assertEquals("First.\nSecond.\n", result.text)
+        assertEquals("First.Second.", result.text)
+        assertEquals(2, result.paragraphStyles.size)
     }
 
     @Test
     fun `consecutive br tags collapse to single line break`() {
         val result = render("<p>a<br><br>b</p>")
-        assertEquals("a\nb\n", result.text)
+        assertEquals("a\nb", result.text)
     }
 
     @Test
-    fun `paragraphs are separated by a single newline`() {
+    fun `paragraphs are not separated by newlines`() {
         val result = render("<p>One.</p>\n\n<p>Two.</p>\n<p>Three.</p>")
-        assertEquals("One.\nTwo.\nThree.\n", result.text)
+        assertEquals("One.Two.Three.", result.text)
+        assertEquals(3, result.paragraphStyles.size)
     }
 
     @Test
-    fun `every paragraph newline is covered by a paragraph style`() {
+    fun `no paragraph style range ends with a newline`() {
         val result = render("<p>One.</p><p>Two.</p><p>Three.</p>")
-        assertEquals("One.\nTwo.\nThree.\n", result.text)
-        for (i in result.text.indices) {
-            if (result.text[i] == '\n') {
-                val covered = result.paragraphStyles.any { it.start <= i && i < it.end }
-                assertTrue("newline at $i is not covered by any paragraph style", covered)
-            }
+        assertEquals("One.Two.Three.", result.text)
+        for (r in result.paragraphStyles) {
+            assertTrue("paragraph range [$r) ends with newline", r.start < r.end)
+            assertTrue(
+                "paragraph range [$r) ends with newline",
+                result.text[r.end - 1] != '\n'
+            )
         }
     }
 
@@ -171,7 +175,142 @@ class EpubStylerTest {
         for (i in 0 until sorted.lastIndex) {
             assertEquals(sorted[i].end, sorted[i + 1].start)
         }
-        assertEquals("One.\nTwo.\nThree.\n".length, sorted.last().end)
+        assertEquals("One.Two.Three.".length, sorted.last().end)
+    }
+
+    @Test
+    fun `title margins become spacing without newlines`() {
+        val css = """
+            .title2 { font-size: 1.5em; font-weight: bold; margin: 1em 0px 0.5em 1.563em; }
+            .p { margin: 0px 0px 0.5em 0px; text-indent: 0px; }
+            .p1 { margin: 0px; text-align: justify; text-indent: 1.5em; }
+        """.trimIndent()
+        val html = """<html><head><style>$css</style></head><body>
+            <div class="title2"><p class="p">Chapter</p></div>
+            <p class="p1">Body text.</p>
+        </body></html>"""
+        val result = render(html, isFirstChapter = false)
+
+        assertTrue(result.text.none { it == '\n' })
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(2, spacers.size)
+        assertEquals(1.5f, spacers[0].item.lineHeight.value, 0.01f)
+        assertEquals(0.75f, spacers[1].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `first chapter skips leading title margin`() {
+        val css = ".title2 { font-size: 1.5em; margin: 1em 0px 0.5em 1.563em; } .p { margin: 0px 0px 0.5em 0px; } .p1 { margin: 0px; }"
+        val html = """<html><head><style>$css</style></head><body>
+            <div class="title2"><p class="p">Chapter</p></div>
+            <p class="p1">Body.</p>
+        </body></html>"""
+        val result = render(html)
+
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(1, spacers.size)
+        assertEquals(0.75f, spacers[0].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `poem stanzas are separated by collapsed margins`() {
+        val css = ".poem { margin: 0.5em 0px 0.5em 2em; } .stanza { margin: 0.5em 0px; } .v { margin: 0px; }"
+        val html = """<html><head><style>$css</style></head><body>
+            <div class="poem">
+            <div class="stanza"><p class="v">a</p><p class="v">b</p></div>
+            <div class="stanza"><p class="v">c</p><p class="v">d</p></div>
+            </div>
+        </body></html>"""
+        val result = render(html)
+
+        assertTrue(result.text.none { it == '\n' })
+        assertEquals("ab\u200Bcd", result.text)
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(1, spacers.size)
+        assertEquals(0.5f, spacers[0].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `empty line paragraph creates spacing from css height`() {
+        val result = render(
+            """<html><head><style>.empty-line { height: 1em; margin: 0px; }</style></head>
+            <body><p>Day one.</p><p class="empty-line"/><p>Day two.</p></body></html>"""
+        )
+        assertTrue(result.text.none { it == '\n' })
+        assertEquals("Day one.\u200BDay two.", result.text)
+        val spacer = result.paragraphStyles.single { it.item.lineHeight.isSpecified }
+        assertEquals(1.0f, spacer.item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `container margin applies once at container edge, not to inner paragraphs`() {
+        val css = ".chapter { margin: 1em 0px 0px 0px; }"
+        val html = """<html><head><style>$css</style></head><body>
+            <div class="chapter"><p>A</p><p>B</p><p>C</p></div>
+        </body></html>"""
+        val result = render(html, isFirstChapter = false)
+
+        assertEquals("\u200BABC", result.text)
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(1, spacers.size)
+        assertEquals(1.0f, spacers[0].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `two value margin shorthand applies first value to top and bottom`() {
+        val result = render(
+            """<html><head><style>.a { margin: 1em 2em; }</style></head>
+            <body><p class="a">A</p><p>B</p></body></html>""",
+            isFirstChapter = false
+        )
+
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(2, spacers.size)
+        assertEquals(1f, spacers[0].item.lineHeight.value, 0.01f)
+        assertEquals(1f, spacers[1].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `plain paragraphs across chapters keep a gap between chapters`() {
+        val ch1 = EpubStyler.renderChapter(
+            """<html><body><p>End of chapter one.</p></body></html>""",
+            { null },
+            isFirstChapter = true
+        )
+        val ch2 = EpubStyler.renderChapter(
+            """<html><body><p>Start of chapter two.</p></body></html>""",
+            { null },
+            isFirstChapter = false,
+            previousBottomMarginEm = 0f
+        )
+        val result = ch1 + ch2
+
+        assertEquals("End of chapter one.\u200BStart of chapter two.", result.text)
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(1, spacers.size)
+        assertEquals(1.0f, spacers[0].item.lineHeight.value, 0.01f)
+    }
+
+    @Test
+    fun `chapter boundary collapses trailing margin of previous chapter`() {
+        val (ch1, trailing) = EpubStyler.renderChapterAndTrailingMargin(
+            """<html><head><style>.end { margin: 0px 0px 2em 0px; }</style></head>
+            <body><p class="end">End.</p></body></html>""",
+            { null },
+            isFirstChapter = true
+        )
+        assertEquals(2f, trailing, 0.01f)
+
+        val ch2 = EpubStyler.renderChapter(
+            """<html><body><p>Start.</p></body></html>""",
+            { null },
+            isFirstChapter = false,
+            previousBottomMarginEm = trailing
+        )
+        val result = ch1 + ch2
+        val spacers = result.paragraphStyles.filter { it.item.lineHeight.isSpecified }
+        assertEquals(1, spacers.size)
+        assertEquals(2.0f, spacers[0].item.lineHeight.value, 0.01f)
     }
 
     @Test

@@ -140,23 +140,31 @@ class BookRepository(private val context: Context) {
 
             val builder = AnnotatedString.Builder()
             var firstChapter = true
+            var previousBottomMarginEm = 0f
             for (href in opfData.spineHrefs) {
                 val entryPath = resolvePath(basePath, href)
                 val entry = zipFile.getEntry(entryPath)
                 if (entry != null && !isImageEntry(entryPath)) {
                     val html = zipFile.getInputStream(entry).bufferedReader().readText()
                     val chapterDir = entryPath.substringBeforeLast("/", missingDelimiterValue = "")
-                    val chapter = EpubStyler.renderChapter(html) { cssHref ->
-                        if (cssHref.startsWith("http") || cssHref.startsWith("//") || cssHref.startsWith("data:")) {
-                            return@renderChapter null
-                        }
-                        val cssPath = resolvePath(chapterDir, cssHref)
-                        val cssEntry = zipFile.getEntry(cssPath)
-                        if (cssEntry != null) zipFile.getInputStream(cssEntry).bufferedReader().readText() else null
+                    val (chapter, trailingMargin) = EpubStyler.renderChapterAndTrailingMargin(
+                        html = html,
+                        loadCss = { cssHref ->
+                            if (cssHref.startsWith("http") || cssHref.startsWith("//") || cssHref.startsWith("data:")) {
+                                return@renderChapterAndTrailingMargin null
+                            }
+                            val cssPath = resolvePath(chapterDir, cssHref)
+                            val cssEntry = zipFile.getEntry(cssPath)
+                            if (cssEntry != null) zipFile.getInputStream(cssEntry).bufferedReader().readText() else null
+                        },
+                        isFirstChapter = firstChapter,
+                        previousBottomMarginEm = previousBottomMarginEm
+                    )
+                    if (chapter.isNotEmpty()) {
+                        builder.append(chapter)
+                        firstChapter = false
+                        previousBottomMarginEm = trailingMargin
                     }
-                    if (!firstChapter) builder.append("\n")
-                    firstChapter = false
-                    builder.append(chapter)
                 }
             }
 
