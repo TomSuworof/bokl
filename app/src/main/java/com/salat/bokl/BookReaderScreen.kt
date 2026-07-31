@@ -80,6 +80,9 @@ fun BookReaderScreen(
                 .padding(padding)
         ) {
             when {
+                book == null -> {
+                    // Destination is being removed; render nothing so exiting is immediate.
+                }
                 state.isLoading -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
@@ -163,7 +166,8 @@ private fun PaginatedReader(
             }
             offset = chunk.nextOffset
             chunkCount++
-            if (chunkCount % 2 == 0) yield()
+            yield()
+            withFrameNanos { }
         }
     }
 
