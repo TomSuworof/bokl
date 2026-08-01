@@ -1,34 +1,20 @@
 package com.salat.bokl
 
-import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
@@ -39,19 +25,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.yield
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookReaderScreen(
     viewModel: ReaderViewModel,
+    settingsViewModel: ReaderSettingsViewModel,
     book: Book?,
     onBack: () -> Unit
 ) {
@@ -62,10 +49,26 @@ fun BookReaderScreen(
     }
 
     val state by viewModel.state.collectAsState()
-    var showSettings by remember { mutableStateOf(false) }
+    val background by settingsViewModel.background.collectAsState()
 
-    val background = state.background.background
-    val textColor = state.background.textColor
+    BackHandler(onBack = onBack)
+
+    val view = LocalView.current
+    val context = LocalContext.current
+    DisposableEffect(view) {
+        val insetsController = (context as? Activity)?.let {
+            WindowCompat.getInsetsController(it.window, view)
+        }
+        insetsController?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    val paperColor = background.background
+    val textColor = background.textColor
 
     val textStyle = TextStyle(
         fontFamily = FontFamily.Serif,
@@ -74,103 +77,70 @@ fun BookReaderScreen(
         color = textColor
     )
 
-    Scaffold(
-        containerColor = background,
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                        }
-                        DropdownMenu(
-                            expanded = showSettings,
-                            onDismissRequest = { showSettings = false }
-                        ) {
-                            ReaderBackground.entries.forEach { option ->
-                                BackgroundOptionRow(
-                                    option = option,
-                                    selected = option == state.background,
-                                    onClick = {
-                                        viewModel.setBackground(option)
-                                        showSettings = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = background,
-                    titleContentColor = textColor,
-                    navigationIconContentColor = textColor,
-                    actionIconContentColor = textColor
-                )
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            when {
-                book == null -> {
-                    // Destination is being removed; render nothing so exiting is immediate.
-                }
-                state.isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                state.error != null -> {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            state.error ?: "",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = onBack) {
-                            Text("Go Back")
-                        }
-                    }
-                }
-                book?.format == BookFormat.EPUB -> {
-                    key(book.id) {
-                        PaginatedReader(
-                            content = state.content,
-                            coverImagePath = state.coverImagePath,
-                            textStyle = textStyle,
-                            pageCounterColor = textColor.copy(alpha = 0.6f),
-                            initialPage = state.initialPage,
-                            onPageChanged = { page, totalPages ->
-                                viewModel.onPageChanged(page, totalPages)
-                            },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 20.dp, vertical = 16.dp)
-                        )
-                    }
-                }
-                else -> {
+    val density = LocalDensity.current
+    val topInset = with(density) { WindowInsets.safeDrawing.getTop(this).toDp() }
+    val bottomInset = with(density) { WindowInsets.safeDrawing.getBottom(this).toDp() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(paperColor)
+    ) {
+        when {
+            book == null -> {
+                // Destination is being removed; render nothing so exiting is immediate.
+            }
+            state.isLoading -> {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            state.error != null -> {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
-                        text = state.content,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp, vertical = 16.dp)
-                            .verticalScroll(rememberScrollState()),
-                        style = textStyle
+                        state.error ?: "",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onBack) {
+                        Text("Go Back")
+                    }
+                }
+            }
+            book?.format == BookFormat.EPUB -> {
+                key(book.id) {
+                    PaginatedReader(
+                        content = state.content,
+                        coverImagePath = state.coverImagePath,
+                        textStyle = textStyle,
+                        paperColor = paperColor,
+                        initialPage = state.initialPage,
+                        topInset = topInset,
+                        bottomInset = bottomInset,
+                        onPageChanged = { page, totalPages ->
+                            viewModel.onPageChanged(page, totalPages)
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
+            }
+            else -> {
+                Text(
+                    text = state.content,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = PageSidePadding,
+                            end = PageSidePadding,
+                            top = PageTopPadding + topInset,
+                            bottom = PageFooterHeight + bottomInset
+                        )
+                        .verticalScroll(rememberScrollState()),
+                    style = textStyle
+                )
             }
         }
     }
@@ -181,34 +151,43 @@ private fun PaginatedReader(
     content: AnnotatedString,
     coverImagePath: String?,
     textStyle: TextStyle,
-    pageCounterColor: Color,
+    paperColor: Color,
     initialPage: Int,
+    topInset: Dp,
+    bottomInset: Dp,
     onPageChanged: (page: Int, totalPages: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
-    val scope = rememberCoroutineScope()
     var readingSize by remember { mutableStateOf(IntSize.Zero) }
     val pages = remember(content) { mutableStateListOf<AnnotatedString>() }
     var isPaginationComplete by remember { mutableStateOf(false) }
     val coverOffset = if (coverImagePath != null) 1 else 0
 
+    val density = LocalDensity.current
+    val sidePaddingPx = with(density) { PageSidePadding.roundToPx() }
+    val topInsetPx = with(density) { topInset.roundToPx() }
+    val bottomInsetPx = with(density) { bottomInset.roundToPx() }
+    val textTopPaddingPx = with(density) { PageTopPadding.roundToPx() } + topInsetPx
+    val footerHeightPx = with(density) { PageFooterHeight.roundToPx() } + bottomInsetPx
+
     LaunchedEffect(content, textStyle, readingSize) {
         isPaginationComplete = false
         pages.clear()
         if (content.isEmpty()) return@LaunchedEffect
-        if (readingSize.width <= 0 || readingSize.height <= 0) return@LaunchedEffect
+        val widthPx = readingSize.width - sidePaddingPx * 2
+        val heightPx = readingSize.height - textTopPaddingPx - footerHeightPx
+        if (widthPx <= 0 || heightPx <= 0) return@LaunchedEffect
 
         var offset = 0
-        var chunkCount = 0
         while (offset < content.length) {
             val chunk = buildPageChunk(
                 content = content,
                 offset = offset,
                 measurer = textMeasurer,
                 textStyle = textStyle,
-                widthPx = readingSize.width,
-                heightPx = readingSize.height
+                widthPx = widthPx,
+                heightPx = heightPx
             )
             pages.addAll(chunk.pages)
             if (chunk.nextOffset <= offset || chunk.pages.isEmpty()) {
@@ -218,7 +197,6 @@ private fun PaginatedReader(
                 break
             }
             offset = chunk.nextOffset
-            chunkCount++
             yield()
             withFrameNanos { }
         }
@@ -226,31 +204,11 @@ private fun PaginatedReader(
     }
 
     val totalPages = pages.size + coverOffset
-    val pageCount by rememberUpdatedState(totalPages)
-    val pagerState = rememberPagerState(pageCount = { pageCount })
 
-    LaunchedEffect(totalPages, isPaginationComplete) {
-        if (isPaginationComplete && totalPages > 0) {
-            val target = initialPage.coerceIn(0, totalPages - 1)
-            if (pagerState.currentPage != target) {
-                pagerState.scrollToPage(target)
-            }
-        } else if (totalPages > 0 && pagerState.currentPage >= totalPages) {
-            pagerState.scrollToPage((totalPages - 1).coerceAtLeast(0))
-        }
-    }
-
-    LaunchedEffect(isPaginationComplete, pagerState.currentPage, totalPages) {
-        if (isPaginationComplete && totalPages > 0) {
-            onPageChanged(pagerState.currentPage, totalPages)
-        }
-    }
-
-    Column(modifier = modifier) {
+    Box(modifier = modifier) {
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
                 .onSizeChanged { readingSize = it }
         ) {
             when {
@@ -266,128 +224,24 @@ private fun PaginatedReader(
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
                 else -> {
-                    HorizontalPager(
-                        state = pagerState,
+                    PageTurnReader(
+                        pages = pages,
+                        coverImagePath = coverImagePath,
+                        textStyle = textStyle,
+                        paperColor = paperColor,
+                        initialPage = initialPage,
+                        paginationComplete = isPaginationComplete,
+                        topInset = topInset,
+                        bottomInset = bottomInset,
+                        onPageChanged = { page, total ->
+                            onPageChanged(page, total)
+                        },
                         modifier = Modifier.fillMaxSize()
-                    ) { page ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(totalPages) {
-                                    val slop = viewConfiguration.touchSlop
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        val up = waitForUpOrCancellation()
-                                        if (up != null &&
-                                            !up.isConsumed &&
-                                            (up.position - down.position).getDistance() < slop
-                                        ) {
-                                            val target = when {
-                                                down.position.x < size.width / 3f -> pagerState.currentPage - 1
-                                                down.position.x > size.width * 2f / 3f -> pagerState.currentPage + 1
-                                                else -> null
-                                            }
-                                            if (target != null) {
-                                                scope.launch {
-                                                    pagerState.animateScrollToPage(
-                                                        target.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                        ) {
-                            if (coverImagePath != null && page == 0) {
-                                CoverPage(
-                                    imagePath = coverImagePath,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                SelectionContainer {
-                                    Text(
-                                        text = pages.getOrElse(page - coverOffset) { AnnotatedString("") },
-                                        modifier = Modifier.fillMaxSize(),
-                                        style = textStyle
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = if (totalPages == 0) "" else "${pagerState.currentPage + 1} / $totalPages",
-                style = MaterialTheme.typography.labelMedium,
-                color = pageCounterColor
-            )
-        }
-    }
-}
-
-@Composable
-private fun CoverPage(imagePath: String, modifier: Modifier = Modifier) {
-    val image by produceState<ImageBitmap?>(initialValue = null, imagePath) {
-        value = withContext(Dispatchers.IO) {
-            BitmapFactory.decodeFile(imagePath)?.asImageBitmap()
-        }
-    }
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        val bitmap = image
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            CircularProgressIndicator()
-        }
-    }
-}
-
-@Composable
-private fun BackgroundOptionRow(
-    option: ReaderBackground,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    DropdownMenuItem(
-        text = {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(option.background)
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = option.textColor
                     )
                 }
             }
-        },
-        onClick = onClick
-    )
+        }
+    }
 }
 
 private const val PAGINATION_WINDOW_CHARS = 10_000

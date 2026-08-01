@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
                     val navController = rememberNavController()
                     val pickerVM: BookPickerViewModel = viewModel()
                     val readerVM: ReaderViewModel = viewModel()
+                    val settingsVM: ReaderSettingsViewModel = viewModel()
                     var selectedBook by remember { mutableStateOf<Book?>(null) }
 
                     LaunchedEffect(Unit) {
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
                         composable("picker") {
                             BookPickerScreen(
                                 viewModel = pickerVM,
+                                settingsViewModel = settingsVM,
                                 onBookSelected = { book ->
                                     selectedBook = book
                                     navController.navigate("reader")
@@ -79,6 +81,7 @@ class MainActivity : ComponentActivity() {
                         composable("reader") {
                             BookReaderScreen(
                                 viewModel = readerVM,
+                                settingsViewModel = settingsVM,
                                 book = selectedBook,
                                 onBack = {
                                     pickerVM.refreshProgress()
