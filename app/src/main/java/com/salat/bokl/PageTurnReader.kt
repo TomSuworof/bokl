@@ -115,6 +115,7 @@ fun PageTurnReader(
     var currentPage by remember { mutableIntStateOf(0) }
     var initialized by remember { mutableStateOf(false) }
     var turnJob: Job? by remember { mutableStateOf(null) }
+    val shadowBitmapCache = remember { BitmapCache() }
 
     fun currentSize(): Size =
         Size(max(boxSize.width, 1).toFloat(), max(boxSize.height, 1).toFloat())
@@ -315,7 +316,8 @@ fun PageTurnReader(
                         backPageColor = paperColor,
                         shadowAlpha = CurlShadowAlpha,
                         shadowRadius = CurlShadowRadius,
-                        shadowOffset = CurlShadowOffset
+                        shadowOffset = CurlShadowOffset,
+                        shadowBitmapCache = shadowBitmapCache
                     )
             ) {
                 PageSurface(
@@ -398,6 +400,7 @@ private fun Modifier.drawCurl(
     shadowAlpha: Float,
     shadowRadius: Dp,
     shadowOffset: DpOffset,
+    shadowBitmapCache: BitmapCache,
 ): Modifier = drawWithCache {
     // Fully turned: the fold line sits at the left edge, so the page is not visible.
     if (posA.x <= 0.5f && posB.x <= 0.5f) {
@@ -434,7 +437,8 @@ private fun Modifier.drawCurl(
         shadowRadius = shadowRadius,
         shadowOffset = shadowOffset,
         topCurlOffset = topCurlOffset,
-        bottomCurlOffset = bottomCurlOffset
+        bottomCurlOffset = bottomCurlOffset,
+        bitmapCache = shadowBitmapCache
     )
 
     onDrawWithContent {
@@ -467,6 +471,7 @@ private fun CacheDrawScope.prepareCurl(
     shadowOffset: DpOffset,
     topCurlOffset: Offset,
     bottomCurlOffset: Offset,
+    bitmapCache: BitmapCache,
 ): ContentDrawScope.() -> Unit {
     // A quadrilateral of the part of the page which should be mirrored as the back-page.
     // Always keep 4 points, even when the back-page is only a small "corner" (3 points),
@@ -507,7 +512,7 @@ private fun CacheDrawScope.prepareCurl(
     val lineVector = topCurlOffset - bottomCurlOffset
     val angle = PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2
 
-    val drawShadow = prepareShadow(shadowAlpha, shadowRadius, shadowOffset, polygon, angle)
+    val drawShadow = prepareShadow(shadowAlpha, shadowRadius, shadowOffset, polygon, angle, bitmapCache)
 
     return result@{
         withTransform({
@@ -534,6 +539,7 @@ private fun CacheDrawScope.prepareShadow(
     shadowOffset: DpOffset,
     polygon: Polygon,
     angle: Float,
+    bitmapCache: BitmapCache,
 ): ContentDrawScope.() -> Unit {
     if (shadowAlpha == 0f || shadowRadius == 0.dp) {
         return { /* No shadow is requested */ }
@@ -561,7 +567,7 @@ private fun CacheDrawScope.prepareShadow(
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         prepareShadowApi28(radius, paint, polygon)
     } else {
-        prepareShadowImage(radius, paint, polygon)
+        prepareShadowImage(radius, paint, polygon, bitmapCache)
     }
 }
 
@@ -578,16 +584,29 @@ private fun prepareShadowApi28(
     }
 }
 
+/** Caches a bitmap so that the API < 28 shadow does not allocate a full-screen bitmap every frame. */
+private class BitmapCache {
+    private var cached: Bitmap? = null
+
+    fun obtain(width: Int, height: Int): Bitmap {
+        val current = cached
+        if (current != null && !current.isRecycled && current.width == width && current.height == height) {
+            return current
+        }
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { cached = it }
+    }
+}
+
 private fun CacheDrawScope.prepareShadowImage(
     radius: Float,
     paint: Paint,
     polygon: Polygon,
+    bitmapCache: BitmapCache,
 ): ContentDrawScope.() -> Unit {
     // Increase the size a little so that the shadow is not clipped.
-    val bitmap = Bitmap.createBitmap(
+    val bitmap = bitmapCache.obtain(
         (size.width + radius * 4).toInt(),
-        (size.height + radius * 4).toInt(),
-        Bitmap.Config.ARGB_8888
+        (size.height + radius * 4).toInt()
     )
     Canvas(bitmap).apply {
         drawPath(
