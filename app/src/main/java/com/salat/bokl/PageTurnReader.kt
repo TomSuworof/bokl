@@ -718,9 +718,9 @@ private fun fingerFold(size: Size, start: Offset, current: Offset, direction: In
  */
 private fun dragProgress(size: Size, down: Offset, current: Offset, direction: Int): Float {
     return if (direction == 1) {
-        ((down.x - current.x) / max(down.x, 1f)).coerceIn(0f, 1f)
+        ((down.x - current.x) / size.width).coerceIn(0f, 1f)
     } else {
-        ((current.x - down.x) / max(size.width - down.x, 1f)).coerceIn(0f, 1f)
+        ((current.x - down.x) / size.width).coerceIn(0f, 1f)
     }
 }
 
