@@ -1,6 +1,7 @@
 package com.salat.bokl
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -14,6 +15,7 @@ import kotlinx.coroutines.withContext
 
 data class BookPickerState(
     val books: List<Book> = emptyList(),
+    val progress: Map<String, ReadingProgress> = emptyMap(),
     val isLoading: Boolean = true,
     val folderUri: Uri? = null,
     val isFirstLaunch: Boolean = false,
@@ -28,6 +30,9 @@ sealed class BookPickerEvent {
 class BookPickerViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BookRepository(application)
     private val prefs = application.getSharedPreferences("bokl", 0)
+    private val progressStore = ReadingProgressStore(
+        application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
+    )
     private val _state = MutableStateFlow(BookPickerState())
     val state: StateFlow<BookPickerState> = _state.asStateFlow()
 
@@ -82,7 +87,10 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
                 val books = withContext(Dispatchers.IO) {
                     repository.listBooks(uri)
                 }
-                _state.value = _state.value.copy(books = books, isLoading = false)
+                val progress = books.mapNotNull { book ->
+                    progressStore.load(book.id)?.let { book.id to it }
+                }.toMap()
+                _state.value = _state.value.copy(books = books, progress = progress, isLoading = false)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -90,6 +98,15 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
         }
+    }
+
+    fun refreshProgress() {
+        val books = _state.value.books
+        if (books.isEmpty()) return
+        val progress = books.mapNotNull { book ->
+            progressStore.load(book.id)?.let { book.id to it }
+        }.toMap()
+        _state.value = _state.value.copy(progress = progress)
     }
 
     fun clearEvent() {

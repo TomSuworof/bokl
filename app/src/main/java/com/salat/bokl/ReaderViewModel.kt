@@ -33,16 +33,23 @@ enum class ReaderBackground(
 
 data class ReaderState(
     val title: String = "",
+    val bookId: String? = null,
     val content: AnnotatedString = AnnotatedString(""),
     val coverImagePath: String? = null,
     val isLoading: Boolean = true,
     val error: String? = null,
-    val background: ReaderBackground = ReaderBackground.White
+    val background: ReaderBackground = ReaderBackground.White,
+    val initialPage: Int = 0,
+    val currentPage: Int = 0,
+    val totalPages: Int = 0
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BookRepository(application)
     private val prefs = application.getSharedPreferences("reader_settings", Context.MODE_PRIVATE)
+    private val progressStore = ReadingProgressStore(
+        application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
+    )
     private val _state = MutableStateFlow(
         ReaderState(background = loadBackground())
     )
@@ -55,12 +62,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadBook(book: Book) {
         viewModelScope.launch {
+            val progress = progressStore.load(book.id)
             _state.value = _state.value.copy(
+                bookId = book.id,
                 title = book.title,
                 content = AnnotatedString(""),
                 coverImagePath = null,
                 isLoading = true,
-                error = null
+                error = null,
+                initialPage = progress?.page ?: 0,
+                currentPage = 0,
+                totalPages = 0
             )
             try {
                 val result = withContext(Dispatchers.IO) {
@@ -78,6 +90,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
         }
+    }
+
+    fun onPageChanged(page: Int, totalPages: Int) {
+        val bookId = _state.value.bookId ?: return
+        progressStore.save(bookId, page, totalPages)
+        _state.value = _state.value.copy(currentPage = page, totalPages = totalPages)
     }
 
     private fun loadBackground(): ReaderBackground {

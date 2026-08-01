@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = readerVM,
                                 book = selectedBook,
                                 onBack = {
+                                    pickerVM.refreshProgress()
                                     selectedBook = null
                                     navController.popBackStack()
                                 }

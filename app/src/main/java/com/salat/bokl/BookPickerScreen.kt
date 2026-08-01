@@ -92,6 +92,7 @@ fun BookPickerScreen(
                         items(state.books, key = { it.id }) { book ->
                             BookListItem(
                                 book = book,
+                                progress = state.progress[book.id],
                                 onClick = { onBookSelected(book) },
                                 loadCover = { viewModel.loadCover(book) }
                             )
@@ -106,6 +107,7 @@ fun BookPickerScreen(
 @Composable
 private fun BookListItem(
     book: Book,
+    progress: ReadingProgress?,
     onClick: () -> Unit,
     loadCover: suspend () -> String?
 ) {
@@ -172,6 +174,19 @@ private fun BookListItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (progress != null) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progress.fraction },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "${progress.percent}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

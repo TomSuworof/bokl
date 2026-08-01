@@ -145,15 +145,21 @@ fun BookReaderScreen(
                     }
                 }
                 book?.format == BookFormat.EPUB -> {
-                    PaginatedReader(
-                        content = state.content,
-                        coverImagePath = state.coverImagePath,
-                        textStyle = textStyle,
-                        pageCounterColor = textColor.copy(alpha = 0.6f),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp, vertical = 16.dp)
-                    )
+                    key(book.id) {
+                        PaginatedReader(
+                            content = state.content,
+                            coverImagePath = state.coverImagePath,
+                            textStyle = textStyle,
+                            pageCounterColor = textColor.copy(alpha = 0.6f),
+                            initialPage = state.initialPage,
+                            onPageChanged = { page, totalPages ->
+                                viewModel.onPageChanged(page, totalPages)
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp, vertical = 16.dp)
+                        )
+                    }
                 }
                 else -> {
                     Text(
@@ -176,15 +182,19 @@ private fun PaginatedReader(
     coverImagePath: String?,
     textStyle: TextStyle,
     pageCounterColor: Color,
+    initialPage: Int,
+    onPageChanged: (page: Int, totalPages: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
     val scope = rememberCoroutineScope()
     var readingSize by remember { mutableStateOf(IntSize.Zero) }
     val pages = remember(content) { mutableStateListOf<AnnotatedString>() }
+    var isPaginationComplete by remember { mutableStateOf(false) }
     val coverOffset = if (coverImagePath != null) 1 else 0
 
     LaunchedEffect(content, textStyle, readingSize) {
+        isPaginationComplete = false
         pages.clear()
         if (content.isEmpty()) return@LaunchedEffect
         if (readingSize.width <= 0 || readingSize.height <= 0) return@LaunchedEffect
@@ -212,18 +222,27 @@ private fun PaginatedReader(
             yield()
             withFrameNanos { }
         }
+        isPaginationComplete = true
     }
 
     val totalPages = pages.size + coverOffset
     val pageCount by rememberUpdatedState(totalPages)
     val pagerState = rememberPagerState(pageCount = { pageCount })
 
-    LaunchedEffect(content) {
-        pagerState.scrollToPage(0)
-    }
-    LaunchedEffect(totalPages) {
-        if (pagerState.currentPage >= totalPages) {
+    LaunchedEffect(totalPages, isPaginationComplete) {
+        if (isPaginationComplete && totalPages > 0) {
+            val target = initialPage.coerceIn(0, totalPages - 1)
+            if (pagerState.currentPage != target) {
+                pagerState.scrollToPage(target)
+            }
+        } else if (totalPages > 0 && pagerState.currentPage >= totalPages) {
             pagerState.scrollToPage((totalPages - 1).coerceAtLeast(0))
+        }
+    }
+
+    LaunchedEffect(isPaginationComplete, pagerState.currentPage, totalPages) {
+        if (isPaginationComplete && totalPages > 0) {
+            onPageChanged(pagerState.currentPage, totalPages)
         }
     }
 
