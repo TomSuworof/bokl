@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -424,11 +425,17 @@ private fun buildPageChunk(
         }
 
         if (pageText != null) {
+            val page = if (isParagraphStart(content, pageStartOffset)) {
+                pageText
+            } else {
+                stripFirstLineIndent(pageText)
+            }
+            val pageEndOffset = pageStartOffset + pageText.length
             pages.add(
-                if (isParagraphStart(content, pageStartOffset)) {
-                    pageText
+                if (paragraphContinuesOnNextPage(content, pageEndOffset)) {
+                    appendParagraphContinuationPad(page)
                 } else {
-                    stripFirstLineIndent(pageText)
+                    page
                 }
             )
         }
@@ -442,6 +449,35 @@ private fun buildPageChunk(
 
 private fun isParagraphStart(content: AnnotatedString, offset: Int): Boolean {
     return offset <= 0 || content.text[offset - 1] == '\n'
+}
+
+private fun paragraphContinuesOnNextPage(content: AnnotatedString, offset: Int): Boolean {
+    if (offset >= content.length) return false
+    if (content.text[offset] == '\n') return false
+    return content.paragraphStyles.none { it.start == offset }
+}
+
+private fun paragraphContinuationPad(): AnnotatedString =
+    AnnotatedString(
+        " " + "W".repeat(160),
+        spanStyle = SpanStyle(color = Color.Transparent)
+    )
+
+private fun appendParagraphContinuationPad(page: AnnotatedString): AnnotatedString {
+    val pad = paragraphContinuationPad()
+    val padded = page + pad
+    if (padded.paragraphStyles.isEmpty()) {
+        return AnnotatedString(
+            padded.text,
+            padded.spanStyles,
+            listOf(AnnotatedString.Range(ParagraphStyle(), 0, padded.length))
+        )
+    }
+    val styles = padded.paragraphStyles.toMutableList()
+    val lastIndex = styles.size - 1
+    val last = styles[lastIndex]
+    styles[lastIndex] = AnnotatedString.Range(last.item, last.start, last.end + pad.length)
+    return AnnotatedString(padded.text, padded.spanStyles, styles)
 }
 
 private fun stripFirstLineIndent(text: AnnotatedString): AnnotatedString {
