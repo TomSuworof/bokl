@@ -145,7 +145,7 @@ class BookRepository(private val context: Context) {
                 val entryPath = resolvePath(basePath, href)
                 val entry = zipFile.getEntry(entryPath)
                 if (entry != null && !isImageEntry(entryPath)) {
-                    val html = zipFile.getInputStream(entry).bufferedReader().readText()
+                    val html = zipFile.getInputStream(entry).use { it.bufferedReader().readText() }
                     val chapterDir = entryPath.substringBeforeLast("/", missingDelimiterValue = "")
                     val (chapter, trailingMargin) = EpubStyler.renderChapterAndTrailingMargin(
                         html = html,
@@ -154,8 +154,9 @@ class BookRepository(private val context: Context) {
                                 return@renderChapterAndTrailingMargin null
                             }
                             val cssPath = resolvePath(chapterDir, cssHref)
-                            val cssEntry = zipFile.getEntry(cssPath)
-                            if (cssEntry != null) zipFile.getInputStream(cssEntry).bufferedReader().readText() else null
+                            zipFile.getEntry(cssPath)?.let { cssEntry ->
+                                zipFile.getInputStream(cssEntry).use { it.bufferedReader().readText() }
+                            }
                         },
                         isFirstChapter = firstChapter,
                         previousBottomMarginEm = previousBottomMarginEm
