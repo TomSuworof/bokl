@@ -30,14 +30,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -385,34 +388,82 @@ private fun buildPageChunk(
     if (offset >= content.length || heightPx <= 0) return PageChunk(emptyList(), offset)
 
     val windowEnd = minOf(offset + PAGINATION_WINDOW_CHARS, content.length)
+    val windowText = content.subSequence(offset, windowEnd)
     val layout = measurer.measure(
-        text = content.subSequence(offset, windowEnd),
+        text = if (isParagraphStart(content, offset)) {
+            windowText
+        } else {
+            stripFirstLineIndent(windowText)
+        },
         style = textStyle,
         constraints = Constraints(maxWidth = widthPx)
     )
     if (layout.lineCount == 0) return PageChunk(emptyList(), windowEnd)
 
-    val windowText = layout.layoutInput.text
+    val measuredText = layout.layoutInput.text
     val pages = mutableListOf<AnnotatedString>()
     var line = 0
     while (line < layout.lineCount) {
         val pageTop = layout.getLineTop(line)
         val startChar = layout.getLineStart(line)
+        val pageStartOffset = offset + startChar
         var endLine = line
         while (endLine < layout.lineCount && layout.getLineBottom(endLine) - pageTop <= heightPx) {
             endLine++
         }
         if (endLine <= line) endLine = line + 1
 
-        if (endLine >= layout.lineCount) {
+        val pageText = if (endLine >= layout.lineCount) {
             if (windowEnd >= content.length) {
-                pages.add(windowText.subSequence(startChar, windowText.length))
+                measuredText.subSequence(startChar, measuredText.length)
+            } else {
+                null
             }
+        } else {
+            measuredText.subSequence(startChar, layout.getLineStart(endLine))
+        }
+
+        if (pageText != null) {
+            pages.add(
+                if (isParagraphStart(content, pageStartOffset)) {
+                    pageText
+                } else {
+                    stripFirstLineIndent(pageText)
+                }
+            )
+        }
+        if (endLine >= layout.lineCount) {
             return PageChunk(pages, offset + startChar)
         }
-        val endChar = layout.getLineStart(endLine)
-        pages.add(windowText.subSequence(startChar, endChar))
         line = endLine
     }
     return PageChunk(pages, windowEnd)
+}
+
+private fun isParagraphStart(content: AnnotatedString, offset: Int): Boolean {
+    return offset <= 0 || content.text[offset - 1] == '\n'
+}
+
+private fun stripFirstLineIndent(text: AnnotatedString): AnnotatedString {
+    if (text.isEmpty() || text.paragraphStyles.isEmpty()) return text
+    var changed = false
+    val newStyles = mutableListOf<AnnotatedString.Range<ParagraphStyle>>()
+    for (r in text.paragraphStyles) {
+        if (r.start == 0) {
+            val indent = r.item.textIndent
+            if (indent != null && indent.firstLine.value > 0f) {
+                newStyles.add(r.copy(item = r.item.copy(
+                    textIndent = TextIndent(
+                        firstLine = 0.em,
+                        restLine = indent.restLine
+                    )
+                )))
+                changed = true
+                continue
+            }
+        }
+        newStyles.add(r)
+    }
+    if (!changed) return text
+    return AnnotatedString(text.text, text.spanStyles, newStyles)
 }
