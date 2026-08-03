@@ -71,7 +71,6 @@ class MainActivity : ComponentActivity() {
                         composable("picker") {
                             BookPickerScreen(
                                 viewModel = pickerVM,
-                                settingsViewModel = settingsVM,
                                 onBookSelected = { book ->
                                     selectedBook = book
                                     navController.navigate("reader")

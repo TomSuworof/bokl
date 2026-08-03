@@ -2,19 +2,14 @@ package com.salat.bokl
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,39 +28,14 @@ import kotlinx.coroutines.withContext
 @Composable
 fun BookPickerScreen(
     viewModel: BookPickerViewModel,
-    settingsViewModel: ReaderSettingsViewModel,
     onBookSelected: (Book) -> Unit
 ) {
     val state by viewModel.state.collectAsState()
-    val background by settingsViewModel.background.collectAsState()
-    var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("My Books") },
-                actions = {
-                    Box {
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                        }
-                        DropdownMenu(
-                            expanded = showSettings,
-                            onDismissRequest = { showSettings = false }
-                        ) {
-                            ReaderBackground.entries.forEach { option ->
-                                BackgroundOptionRow(
-                                    option = option,
-                                    selected = option == background,
-                                    onClick = {
-                                        settingsViewModel.setBackground(option)
-                                        showSettings = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
@@ -220,40 +190,5 @@ private fun BookListItem(
             }
         }
     }
-}
-
-@Composable
-private fun BackgroundOptionRow(
-    option: ReaderBackground,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    DropdownMenuItem(
-        text = {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(option.background)
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = option.textColor
-                    )
-                }
-            }
-        },
-        onClick = onClick
-    )
 }
 

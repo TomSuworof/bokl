@@ -2,15 +2,30 @@ package com.salat.bokl
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -33,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlin.math.abs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
 @Composable
@@ -81,10 +98,51 @@ fun BookReaderScreen(
     val topInset = with(density) { WindowInsets.safeDrawing.getTop(this).toDp() }
     val bottomInset = with(density) { WindowInsets.safeDrawing.getBottom(this).toDp() }
 
+    var showSettings by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(false) }
+    var controlsShownTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(controlsShownTick) {
+        if (controlsShownTick > 0) {
+            controlsVisible = true
+            delay(ControlsTimeoutMillis)
+            controlsVisible = false
+        }
+    }
+
+    val systemBarsVisible = with(density) {
+        WindowInsets.systemBars.getTop(this) > 0 ||
+            WindowInsets.systemBars.getBottom(this) > 0
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(paperColor)
+            .pointerInput(Unit) {
+                val zonePx = with(density) { EdgeSwipeZone.roundToPx() }
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val inZone = down.position.y <= zonePx ||
+                        down.position.y >= size.height - zonePx
+                    if (!inZone) {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.any { it.changedToUpIgnoreConsumed() }) break
+                        }
+                        return@awaitEachGesture
+                    }
+                    var vertical = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.changedToUpIgnoreConsumed()) break
+                        vertical += change.positionChange().y
+                    }
+                    if (abs(vertical) > viewConfiguration.touchSlop) {
+                        controlsShownTick++
+                    }
+                }
+            }
     ) {
         when {
             book == null -> {
@@ -143,7 +201,107 @@ fun BookReaderScreen(
                 )
             }
         }
+
+        ReaderSettingsButton(
+            visible = systemBarsVisible || controlsVisible || showSettings,
+            expanded = showSettings,
+            paperColor = paperColor,
+            textColor = textColor,
+            topInset = topInset,
+            onExpand = { showSettings = true },
+            onDismiss = { showSettings = false },
+            selected = background,
+            onSelect = { settingsViewModel.setBackground(it); showSettings = false },
+            modifier = Modifier.align(Alignment.TopEnd)
+        )
     }
+}
+
+@Composable
+private fun ReaderSettingsButton(
+    visible: Boolean,
+    expanded: Boolean,
+    paperColor: Color,
+    textColor: Color,
+    topInset: Dp,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+    selected: ReaderBackground,
+    onSelect: (ReaderBackground) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier.padding(
+            top = (topInset + 8.dp).coerceAtLeast(24.dp),
+            end = 8.dp
+        ),
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        Box(
+            modifier = Modifier
+                .shadow(elevation = 3.dp, shape = CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(paperColor.copy(alpha = 0.95f))
+                .border(1.5.dp, textColor.copy(alpha = 0.75f), CircleShape)
+        ) {
+            IconButton(onClick = onExpand) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = textColor
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = onDismiss
+            ) {
+                ReaderBackground.entries.forEach { option ->
+                    BackgroundOptionRow(
+                        option = option,
+                        selected = option == selected,
+                        onClick = { onSelect(option) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundOptionRow(
+    option: ReaderBackground,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(option.background)
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = option.textColor
+                    )
+                }
+            }
+        },
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -245,6 +403,11 @@ private fun PaginatedReader(
 }
 
 private const val PAGINATION_WINDOW_CHARS = 10_000
+
+// How far from the top or bottom edge a swipe must start to reveal the settings gear.
+private val EdgeSwipeZone = 72.dp
+// How long the gear stays visible after an edge swipe, mirroring the transient system bars.
+private const val ControlsTimeoutMillis = 3000L
 
 private data class PageChunk(
     val pages: List<AnnotatedString>,
