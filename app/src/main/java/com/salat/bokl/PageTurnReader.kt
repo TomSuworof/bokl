@@ -111,6 +111,7 @@ fun PageTurnReader(
     var fold by remember { mutableStateOf(Fold(Offset.Zero, Offset.Zero)) }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     var turnDirection by remember { mutableStateOf(0) }
+    var turnStartPage by remember { mutableIntStateOf(0) }
     var currentPage by remember { mutableIntStateOf(0) }
     var initialized by remember { mutableStateOf(false) }
     var turnJob: Job? by remember { mutableStateOf(null) }
@@ -138,12 +139,11 @@ fun PageTurnReader(
         }
     }
 
-    fun commit(direction: Int) {
+    fun commitPage(direction: Int) {
         val target = (currentPage + direction).coerceIn(0, latestTotalPages - 1)
         if (target != currentPage) {
             currentPage = target
         }
-        turnDirection = 0
     }
 
     fun animateFold(from: Fold, to: Fold, durationMillis: Int, then: () -> Unit) {
@@ -161,6 +161,8 @@ fun PageTurnReader(
     fun startTurn(direction: Int) {
         val target = currentPage + direction
         if (target < 0 || target >= latestTotalPages) return
+        turnStartPage = currentPage
+        commitPage(direction)
         turnDirection = direction
         fold = curlFold(currentSize(), direction, 0f)
         turnJob?.cancel()
@@ -170,7 +172,7 @@ fun PageTurnReader(
                 targetValue = 1f,
                 animationSpec = tween(TurnDurationTapMillis, easing = PageTurnEasing)
             ) { value, _ -> fold = curlFold(currentSize(), direction, value) }
-            commit(direction)
+            turnDirection = 0
         }
     }
 
@@ -232,6 +234,7 @@ fun PageTurnReader(
                                 }
                                 dragStarted = true
                                 dragValue = dragProgress(currentSize(), down.position, change.position, direction)
+                                turnStartPage = currentPage
                                 turnDirection = direction
                                 turnJob?.cancel()
                                 fold = dragFold(currentSize(), down.position, change.position, direction)
@@ -251,14 +254,17 @@ fun PageTurnReader(
                         }
                         val complete = flung || dragValue >= 0.5f
                         turnJob?.cancel()
-                        turnJob = scope.launch {
-                            if (complete && !canceled && !abandoned && !upConsumed) {
+                        if (complete && !canceled && !abandoned && !upConsumed) {
+                            commitPage(direction)
+                            turnJob = scope.launch {
                                 animateFold(
                                     from = fold,
                                     to = curlFold(currentSize(), direction, 1f),
                                     durationMillis = TurnDurationReleaseMillis
-                                ) { commit(direction) }
-                            } else {
+                                ) { turnDirection = 0 }
+                            }
+                        } else {
+                            turnJob = scope.launch {
                                 animateFold(
                                     from = fold,
                                     to = curlFold(currentSize(), direction, 0f),
@@ -283,15 +289,15 @@ fun PageTurnReader(
                 }
             }
     ) {
-        val baseIndex = if (turnDirection == 1) {
-            (currentPage + 1).coerceIn(0, latestTotalPages - 1)
-        } else {
-            currentPage
+        val baseIndex = when (turnDirection) {
+            1 -> (turnStartPage + 1).coerceIn(0, latestTotalPages - 1)
+            -1 -> turnStartPage.coerceIn(0, latestTotalPages - 1)
+            else -> currentPage
         }
-        val turningIndex = if (turnDirection == 1) {
-            currentPage
-        } else {
-            (currentPage - 1).coerceAtLeast(0)
+        val turningIndex = when (turnDirection) {
+            1 -> turnStartPage
+            -1 -> (turnStartPage - 1).coerceAtLeast(0)
+            else -> currentPage
         }
 
         PageSurface(
