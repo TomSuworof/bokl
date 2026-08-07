@@ -61,13 +61,11 @@ import kotlinx.coroutines.yield
 fun BookReaderScreen(
     viewModel: ReaderViewModel,
     settingsViewModel: ReaderSettingsViewModel,
-    book: Book?,
+    book: Book,
     onBack: () -> Unit
 ) {
     LaunchedEffect(book) {
-        if (book != null) {
-            viewModel.loadBook(book)
-        }
+        viewModel.loadBook(book)
     }
 
     val state by viewModel.state.collectAsState()
@@ -150,9 +148,6 @@ fun BookReaderScreen(
             }
     ) {
         when {
-            book == null -> {
-                // Destination is being removed; render nothing so exiting is immediate.
-            }
             state.isLoading -> {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
@@ -173,22 +168,20 @@ fun BookReaderScreen(
                     }
                 }
             }
-            book?.format == BookFormat.EPUB -> {
-                key(book.id) {
-                    PaginatedReader(
-                        content = state.content,
-                        coverImagePath = state.coverImagePath,
-                        textStyle = textStyle,
-                        paperColor = paperColor,
-                        initialPage = state.initialPage,
-                        topInset = topInset,
-                        bottomInset = bottomInset,
-                        onPageChanged = { page, totalPages ->
-                            viewModel.onPageChanged(page, totalPages)
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+            book.format == BookFormat.EPUB -> {
+                PaginatedReader(
+                    content = state.content,
+                    coverImagePath = state.coverImagePath,
+                    textStyle = textStyle,
+                    paperColor = paperColor,
+                    initialPage = state.initialPage,
+                    topInset = topInset,
+                    bottomInset = bottomInset,
+                    onPageChanged = { page, totalPages ->
+                        viewModel.onPageChanged(page, totalPages)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             else -> {
                 Text(
