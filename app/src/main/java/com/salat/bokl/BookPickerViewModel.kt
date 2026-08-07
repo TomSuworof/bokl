@@ -53,18 +53,24 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
             _events.value = BookPickerEvent.NeedsFolder
         } else {
             val uri = Uri.parse(uriString)
-            persistPermissions(uri)
-            _state.value = _state.value.copy(folderUri = uri)
-            loadBooks(uri)
+            if (isGrantPersisted(uri)) {
+                _state.value = _state.value.copy(folderUri = uri)
+                loadBooks(uri)
+            } else {
+                prefs.edit().remove(folderKey).apply()
+                _state.value = _state.value.copy(isFirstLaunch = true, isLoading = false)
+                _events.value = BookPickerEvent.NeedsFolder
+            }
         }
     }
 
     fun onFolderSelected(uri: Uri) {
-        prefs.edit()
-            .putString(folderKey, uri.toString())
-            .putInt(takeFlagsKey, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            .apply()
-        persistPermissions(uri)
+        val editor = prefs.edit().remove(folderKey)
+        if (persistPermissions(uri)) {
+            editor.putString(folderKey, uri.toString())
+                .putInt(takeFlagsKey, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        editor.apply()
         _state.value = _state.value.copy(folderUri = uri, isFirstLaunch = false)
         loadBooks(uri)
     }
@@ -74,10 +80,22 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
         checkFolder()
     }
 
-    private fun persistPermissions(uri: Uri) {
+    private fun persistPermissions(uri: Uri): Boolean {
         val context = getApplication<Application>()
         val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+        return try {
+            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            true
+        } catch (e: SecurityException) {
+            false
+        }
+    }
+
+    private fun isGrantPersisted(uri: Uri): Boolean {
+        val context = getApplication<Application>()
+        return context.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+        }
     }
 
     private fun loadBooks(uri: Uri) {
