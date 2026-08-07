@@ -338,8 +338,9 @@ private fun PaginatedReader(
         if (widthPx <= 0 || heightPx <= 0) return@LaunchedEffect
 
         var offset = 0
+        var pagesThisFrame = 0
         while (offset < content.length) {
-            val chunk = buildPageChunk(
+            val chunk = buildPage(
                 content = content,
                 offset = offset,
                 measurer = textMeasurer,
@@ -355,8 +356,11 @@ private fun PaginatedReader(
                 break
             }
             offset = chunk.nextOffset
-            yield()
-            withFrameNanos { }
+            if (++pagesThisFrame >= PAGES_PER_FRAME) {
+                pagesThisFrame = 0
+                yield()
+                withFrameNanos { }
+            }
         }
         isPaginationComplete = true
     }
@@ -403,6 +407,7 @@ private fun PaginatedReader(
 }
 
 private const val PAGINATION_WINDOW_CHARS = 10_000
+private const val PAGES_PER_FRAME = 4
 
 // How far from the top or bottom edge a swipe must start to reveal the settings gear.
 private val EdgeSwipeZone = 72.dp
@@ -414,7 +419,7 @@ private data class PageChunk(
     val nextOffset: Int
 )
 
-private fun buildPageChunk(
+private fun buildPage(
     content: AnnotatedString,
     offset: Int,
     measurer: TextMeasurer,
@@ -427,64 +432,39 @@ private fun buildPageChunk(
     val windowEnd = minOf(offset + PAGINATION_WINDOW_CHARS, content.length)
     val windowText = content.subSequence(offset, windowEnd)
     val layout = measurer.measure(
-        text = if (isParagraphStart(content, offset)) {
-            windowText
-        } else {
-            stripFirstLineIndent(windowText)
-        },
+        text = stripFirstLineIndent(windowText),
         style = textStyle,
         constraints = Constraints(maxWidth = widthPx)
     )
     if (layout.lineCount == 0) return PageChunk(emptyList(), windowEnd)
 
-    val measuredText = layout.layoutInput.text
-    val pages = mutableListOf<AnnotatedString>()
-    var line = 0
-    while (line < layout.lineCount) {
-        val pageTop = layout.getLineTop(line)
-        val startChar = layout.getLineStart(line)
-        val pageStartOffset = offset + startChar
-        var endLine = line
-        while (endLine < layout.lineCount && layout.getLineBottom(endLine) - pageTop <= heightPx) {
-            endLine++
-        }
-        if (endLine <= line) endLine = line + 1
-
-        val pageText = if (endLine >= layout.lineCount) {
-            if (windowEnd >= content.length) {
-                measuredText.subSequence(startChar, measuredText.length)
-            } else {
-                null
-            }
-        } else {
-            measuredText.subSequence(startChar, layout.getLineStart(endLine))
-        }
-
-        if (pageText != null) {
-            val page = if (isParagraphStart(content, pageStartOffset)) {
-                pageText
-            } else {
-                stripFirstLineIndent(pageText)
-            }
-            val pageEndOffset = pageStartOffset + pageText.length
-            pages.add(
-                if (paragraphContinuesOnNextPage(content, pageEndOffset)) {
-                    appendParagraphContinuationPad(page)
-                } else {
-                    page
-                }
-            )
-        }
-        if (endLine >= layout.lineCount) {
-            return PageChunk(pages, offset + startChar)
-        }
-        line = endLine
+    var endLine = 0
+    while (endLine < layout.lineCount && layout.getLineBottom(endLine) <= heightPx) {
+        endLine++
     }
-    return PageChunk(pages, windowEnd)
-}
+    if (endLine <= 0) endLine = 1
 
-private fun isParagraphStart(content: AnnotatedString, offset: Int): Boolean {
-    return offset <= 0 || content.text[offset - 1] == '\n'
+    val pageEndOffset: Int
+    val pageText: AnnotatedString
+    if (endLine >= layout.lineCount) {
+        pageEndOffset = windowEnd
+        pageText = windowText
+    } else {
+        pageEndOffset = offset + layout.getLineStart(endLine)
+        pageText = windowText.subSequence(0, pageEndOffset - offset)
+    }
+
+    val page = stripFirstLineIndent(pageText)
+    return PageChunk(
+        listOf(
+            if (paragraphContinuesOnNextPage(content, pageEndOffset)) {
+                appendParagraphContinuationPad(page)
+            } else {
+                page
+            }
+        ),
+        pageEndOffset
+    )
 }
 
 private fun paragraphContinuesOnNextPage(content: AnnotatedString, offset: Int): Boolean {
