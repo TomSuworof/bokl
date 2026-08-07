@@ -3,15 +3,20 @@ package com.salat.bokl
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -202,14 +207,24 @@ fun BookReaderScreen(
             }
         }
 
+        if (showSettings) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showSettings = false }
+            )
+        }
+
         ReaderSettingsButton(
             visible = systemBarsVisible || controlsVisible || showSettings,
             expanded = showSettings,
             paperColor = paperColor,
             textColor = textColor,
             topInset = topInset,
-            onExpand = { showSettings = true },
-            onDismiss = { showSettings = false },
+            onExpand = { showSettings = !showSettings },
             selected = background,
             onSelect = { settingsViewModel.setBackground(it); showSettings = false },
             modifier = Modifier.align(Alignment.TopEnd)
@@ -225,7 +240,6 @@ private fun ReaderSettingsButton(
     textColor: Color,
     topInset: Dp,
     onExpand: () -> Unit,
-    onDismiss: () -> Unit,
     selected: ReaderBackground,
     onSelect: (ReaderBackground) -> Unit,
     modifier: Modifier = Modifier
@@ -239,30 +253,44 @@ private fun ReaderSettingsButton(
         enter = fadeIn(),
         exit = fadeOut()
     ) {
-        Box(
-            modifier = Modifier
-                .shadow(elevation = 3.dp, shape = CircleShape, clip = false)
-                .clip(CircleShape)
-                .background(paperColor.copy(alpha = 0.95f))
-                .border(1.5.dp, textColor.copy(alpha = 0.75f), CircleShape)
-        ) {
-            IconButton(onClick = onExpand) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                    tint = textColor
-                )
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = onDismiss
+        Column(horizontalAlignment = Alignment.End) {
+            Box(
+                modifier = Modifier
+                    .shadow(elevation = 3.dp, shape = CircleShape, clip = false)
+                    .clip(CircleShape)
+                    .background(paperColor.copy(alpha = 0.95f))
+                    .border(1.5.dp, textColor.copy(alpha = 0.75f), CircleShape)
             ) {
-                ReaderBackground.entries.forEach { option ->
-                    BackgroundOptionRow(
-                        option = option,
-                        selected = option == selected,
-                        onClick = { onSelect(option) }
+                IconButton(onClick = onExpand) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        tint = textColor
                     )
+                }
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .shadow(elevation = 3.dp, shape = RoundedCornerShape(24.dp), clip = false)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(paperColor.copy(alpha = 0.95f))
+                        .border(1.5.dp, textColor.copy(alpha = 0.75f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    ReaderBackground.entries.forEach { option ->
+                        BackgroundColorSwatch(
+                            option = option,
+                            selected = option == selected,
+                            onClick = { onSelect(option) },
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
                 }
             }
         }
@@ -270,38 +298,35 @@ private fun ReaderSettingsButton(
 }
 
 @Composable
-private fun BackgroundOptionRow(
+private fun BackgroundColorSwatch(
     option: ReaderBackground,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    DropdownMenuItem(
-        text = {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(option.background)
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = option.textColor
-                    )
-                }
-            }
-        },
-        onClick = onClick
-    )
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(option.background)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outlineVariant,
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = option.textColor
+            )
+        }
+    }
 }
 
 @Composable
