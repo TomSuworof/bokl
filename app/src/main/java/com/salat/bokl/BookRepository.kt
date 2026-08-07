@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.compose.ui.text.AnnotatedString
 import java.io.File
+import java.io.IOException
 import java.util.zip.ZipFile
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
@@ -66,26 +67,13 @@ class BookRepository(private val context: Context) {
 
     fun loadCover(book: Book): String? {
         if (book.format != BookFormat.EPUB) return null
-        coverCache[book.id]?.let { return it }
-        return extractCover(book.uri, book.id)
+        return coverCache[book.id] ?: extractCover(book.uri, book.id)
     }
 
-    private fun extractCover(uri: Uri, bookId: String?): String? {
-        val tempFile = File(context.cacheDir, "epub_${System.nanoTime()}.epub")
-        return try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                tempFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            extractCoverFromEpubFile(tempFile, bookId)
-        } catch (e: Exception) {
-            null
-        } finally {
-            tempFile.delete()
-        }
-    }
+    private fun extractCover(uri: Uri, bookId: String?): String? =
+        withEpubFile(uri, onError = { null }) { extractCoverFromEpubFile(it, bookId) }
 
     private fun extractCoverFromEpubFile(epubFile: File, cacheKey: String?): String? {
-        if (cacheKey != null) coverCache[cacheKey]?.let { return it }
         val zipFile = ZipFile(epubFile)
         try {
             val containerEntry = zipFile.getEntry("META-INF/container.xml") ?: return null
@@ -94,13 +82,22 @@ class BookRepository(private val context: Context) {
             val basePath = opfPath.substringBeforeLast("/", missingDelimiterValue = "")
             val opfEntry = zipFile.getEntry(opfPath) ?: return null
             val opfXml = zipFile.getInputStream(opfEntry).bufferedReader().readText()
-            val opfData = parseOpf(opfXml)
-            val path = resolveCoverImage(zipFile, basePath, opfData) ?: return null
-            return extractImage(zipFile, path).also { coverPath ->
-                if (cacheKey != null) coverCache[cacheKey] = coverPath
-            }
+            return extractCoverFromOpf(zipFile, basePath, parseOpf(opfXml), cacheKey)
         } finally {
             zipFile.close()
+        }
+    }
+
+    private fun extractCoverFromOpf(
+        zipFile: ZipFile,
+        basePath: String,
+        opfData: OpfData,
+        cacheKey: String?
+    ): String? {
+        if (cacheKey != null) coverCache[cacheKey]?.let { return it }
+        val path = resolveCoverImage(zipFile, basePath, opfData) ?: return null
+        return extractImage(zipFile, path).also { coverPath ->
+            if (cacheKey != null) coverCache[cacheKey] = coverPath
         }
     }
 
@@ -108,15 +105,20 @@ class BookRepository(private val context: Context) {
         return context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
     }
 
-    private fun readEpub(uri: Uri, bookId: String): BookContent {
+    private fun readEpub(uri: Uri, bookId: String): BookContent =
+        withEpubFile(uri, onError = { e -> BookContent(AnnotatedString("Error reading EPUB: ${e.message}")) }) {
+            parseEpub(it, bookId)
+        }
+
+    private fun <T> withEpubFile(uri: Uri, onError: (Exception) -> T, block: (File) -> T): T {
         val tempFile = File(context.cacheDir, "epub_${System.nanoTime()}.epub")
-        try {
+        return try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 tempFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            return parseEpub(tempFile, bookId)
+            } ?: throw IOException("Unable to open $uri")
+            block(tempFile)
         } catch (e: Exception) {
-            return BookContent(AnnotatedString("Error reading EPUB: ${e.message}"))
+            onError(e)
         } finally {
             tempFile.delete()
         }
@@ -169,7 +171,7 @@ class BookRepository(private val context: Context) {
                 }
             }
 
-            val coverPath = extractCoverFromEpubFile(epubFile, bookId)
+            val coverPath = extractCoverFromOpf(zipFile, basePath, opfData, bookId)
             return BookContent(builder.toAnnotatedString().trimEndIfNeeded(), coverPath)
         } finally {
             zipFile.close()
