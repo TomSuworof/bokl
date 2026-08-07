@@ -1,7 +1,6 @@
 package com.salat.bokl
 
 import android.app.Application
-import android.content.Context
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +26,7 @@ enum class ReaderBackground(
 }
 
 class ReaderSettingsViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = application.getSharedPreferences("reader_settings", Context.MODE_PRIVATE)
+    private val prefs = getApplication<BoklApplication>().readerSettingsPrefs
     private val _background = MutableStateFlow(loadBackground())
     val background: StateFlow<ReaderBackground> = _background.asStateFlow()
 

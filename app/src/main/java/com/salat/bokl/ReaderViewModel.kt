@@ -1,11 +1,12 @@
 package com.salat.bokl
 
 import android.app.Application
-import android.content.Context
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,12 +26,13 @@ data class ReaderState(
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = BookRepository(application)
-    private val progressStore = ReadingProgressStore(
-        application.getSharedPreferences("reading_progress", Context.MODE_PRIVATE)
-    )
+    private val app = getApplication<BoklApplication>()
+    private val repository = app.bookRepository
+    private val progressStore = app.progressStore
     private val _state = MutableStateFlow(ReaderState())
     val state: StateFlow<ReaderState> = _state.asStateFlow()
+
+    private var saveJob: Job? = null
 
     fun loadBook(book: Book) {
         viewModelScope.launch {
@@ -66,7 +68,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onPageChanged(page: Int, totalPages: Int) {
         val bookId = _state.value.bookId ?: return
-        progressStore.save(bookId, page, totalPages)
         _state.value = _state.value.copy(currentPage = page, totalPages = totalPages)
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(PROGRESS_SAVE_DELAY_MILLIS)
+            progressStore.save(bookId, page, totalPages)
+        }
+    }
+
+    override fun onCleared() {
+        saveJob?.cancel()
+        val state = _state.value
+        if (state.totalPages > 0) {
+            state.bookId?.let { progressStore.save(it, state.currentPage, state.totalPages) }
+        }
+        super.onCleared()
+    }
+
+    private companion object {
+        const val PROGRESS_SAVE_DELAY_MILLIS = 500L
     }
 }
