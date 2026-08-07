@@ -127,16 +127,12 @@ private fun BookListItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val coverPath by produceState<String?>(initialValue = null, book.id) {
-                value = loadCover()
-            }
-            val coverBitmap by produceState<ImageBitmap?>(initialValue = null, coverPath) {
-                value = if (coverPath != null) {
+            val coverBitmap by produceState<ImageBitmap?>(initialValue = null, book.id) {
+                val coverPath = loadCover()
+                value = coverPath?.let {
                     withContext(Dispatchers.IO) {
-                        BitmapFactory.decodeFile(coverPath)?.asImageBitmap()
+                        BitmapFactory.decodeFile(it)?.asImageBitmap()
                     }
-                } else {
-                    null
                 }
             }
             val bitmap = coverBitmap
