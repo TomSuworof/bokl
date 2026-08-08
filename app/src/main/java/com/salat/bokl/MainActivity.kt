@@ -17,6 +17,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
@@ -56,19 +57,17 @@ class MainActivity : ComponentActivity() {
                     ) { uri: Uri? ->
                         if (uri != null) pickerVM.onFolderSelected(uri)
                     }
-                    LaunchedEffect(Unit) {
-                        pickerVM.events.collect { event ->
-                            when (event) {
-                                is BookPickerEvent.NeedsFolder -> folderPickerLauncher.launch(null)
-                            }
-                        }
+                    val pickerState by pickerVM.state.collectAsState()
+                    LaunchedEffect(pickerState.isFirstLaunch) {
+                        if (pickerState.isFirstLaunch) folderPickerLauncher.launch(null)
                     }
 
                     val book = selectedBook
                     if (book == null) {
                         BookPickerScreen(
                             viewModel = pickerVM,
-                            onBookSelected = { selectedBook = it }
+                            onBookSelected = { selectedBook = it },
+                            onChooseFolder = { folderPickerLauncher.launch(null) }
                         )
                     } else {
                         BookReaderScreen(

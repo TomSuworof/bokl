@@ -6,11 +6,8 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,10 +21,6 @@ data class BookPickerState(
     val error: String? = null
 )
 
-sealed class BookPickerEvent {
-    data object NeedsFolder : BookPickerEvent()
-}
-
 class BookPickerViewModel(application: Application) : AndroidViewModel(application) {
     private val app = getApplication<BoklApplication>()
     private val repository = app.bookRepository
@@ -35,9 +28,6 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
     private val progressStore = app.progressStore
     private val _state = MutableStateFlow(BookPickerState())
     val state: StateFlow<BookPickerState> = _state.asStateFlow()
-
-    private val _events = MutableSharedFlow<BookPickerEvent>(extraBufferCapacity = 1)
-    val events: SharedFlow<BookPickerEvent> = _events.asSharedFlow()
 
     private val folderKey = "folder_uri"
     private val takeFlagsKey = "folder_flags"
@@ -50,7 +40,6 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
         val uriString = prefs.getString(folderKey, null)
         if (uriString == null) {
             _state.value = _state.value.copy(isFirstLaunch = true, isLoading = false)
-            _events.tryEmit(BookPickerEvent.NeedsFolder)
         } else {
             val uri = Uri.parse(uriString)
             if (isGrantPersisted(uri)) {
@@ -59,7 +48,6 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
             } else {
                 prefs.edit().remove(folderKey).apply()
                 _state.value = _state.value.copy(isFirstLaunch = true, isLoading = false)
-                _events.tryEmit(BookPickerEvent.NeedsFolder)
             }
         }
     }

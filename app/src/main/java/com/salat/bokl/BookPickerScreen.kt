@@ -28,7 +28,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun BookPickerScreen(
     viewModel: BookPickerViewModel,
-    onBookSelected: (Book) -> Unit
+    onBookSelected: (Book) -> Unit,
+    onChooseFolder: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -83,6 +84,12 @@ fun BookPickerScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (state.isFirstLaunch) {
+                            Spacer(Modifier.height(24.dp))
+                            Button(onClick = onChooseFolder) {
+                                Text("Choose folder")
+                            }
+                        }
                     }
                 }
                 else -> {
