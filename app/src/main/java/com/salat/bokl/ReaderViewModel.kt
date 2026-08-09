@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 data class ReaderState(
     val title: String = "",
@@ -71,7 +72,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _state.value = _state.value.copy(currentPage = page, totalPages = totalPages)
         saveJob?.cancel()
         saveJob = viewModelScope.launch {
-            delay(PROGRESS_SAVE_DELAY_MILLIS)
+            delay(PROGRESS_SAVE_DELAY_MILLIS.milliseconds)
             progressStore.save(bookId, page, totalPages)
         }
     }

@@ -13,7 +13,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,8 +31,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,8 +65,8 @@ import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Constraints
@@ -53,9 +78,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
+import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun BookReaderScreen(
@@ -107,14 +133,14 @@ fun BookReaderScreen(
     LaunchedEffect(controlsShownTick) {
         if (controlsShownTick > 0) {
             controlsVisible = true
-            delay(ControlsTimeoutMillis)
+            delay(ControlsTimeoutMillis.milliseconds)
             controlsVisible = false
         }
     }
 
     val systemBarsVisible = with(density) {
         WindowInsets.systemBars.getTop(this) > 0 ||
-            WindowInsets.systemBars.getBottom(this) > 0
+                WindowInsets.systemBars.getBottom(this) > 0
     }
 
     Box(
@@ -126,7 +152,7 @@ fun BookReaderScreen(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val inZone = down.position.y <= zonePx ||
-                        down.position.y >= size.height - zonePx
+                            down.position.y >= size.height - zonePx
                     if (!inZone) {
                         while (true) {
                             val event = awaitPointerEvent()
@@ -151,6 +177,7 @@ fun BookReaderScreen(
             state.isLoading -> {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
+
             state.error != null -> {
                 Column(
                     modifier = Modifier
@@ -168,6 +195,7 @@ fun BookReaderScreen(
                     }
                 }
             }
+
             book.format == BookFormat.EPUB -> {
                 PaginatedReader(
                     content = state.content,
@@ -183,6 +211,7 @@ fun BookReaderScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+
             else -> {
                 Text(
                     text = state.content,
@@ -338,7 +367,6 @@ private fun PaginatedReader(
     var readingSize by remember { mutableStateOf(IntSize.Zero) }
     val pages = remember(content) { mutableStateListOf<AnnotatedString>() }
     var isPaginationComplete by remember { mutableStateOf(false) }
-    val coverOffset = if (coverImagePath != null) 1 else 0
 
     val density = LocalDensity.current
     val sidePaddingPx = with(density) { PageSidePadding.roundToPx() }
@@ -383,8 +411,6 @@ private fun PaginatedReader(
         isPaginationComplete = true
     }
 
-    val totalPages = pages.size + coverOffset
-
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
@@ -400,9 +426,11 @@ private fun PaginatedReader(
                         color = textStyle.color
                     )
                 }
+
                 coverImagePath == null && pages.isEmpty() -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
+
                 else -> {
                     PageTurnReader(
                         pages = pages,
@@ -429,6 +457,7 @@ private const val PAGES_PER_FRAME = 4
 
 // How far from the top or bottom edge a swipe must start to reveal the settings gear.
 private val EdgeSwipeZone = 72.dp
+
 // How long the gear stays visible after an edge swipe, mirroring the transient system bars.
 private const val ControlsTimeoutMillis = 3000L
 
@@ -522,12 +551,16 @@ private fun stripFirstLineIndent(text: AnnotatedString): AnnotatedString {
         if (r.start == 0) {
             val indent = r.item.textIndent
             if (indent != null && indent.firstLine.value > 0f) {
-                newStyles.add(r.copy(item = r.item.copy(
-                    textIndent = TextIndent(
-                        firstLine = 0.em,
-                        restLine = indent.restLine
+                newStyles.add(
+                    r.copy(
+                        item = r.item.copy(
+                            textIndent = TextIndent(
+                                firstLine = 0.em,
+                                restLine = indent.restLine
+                            )
+                        )
                     )
-                )))
+                )
                 changed = true
                 continue
             }

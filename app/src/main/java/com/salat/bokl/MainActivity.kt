@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.net.toUri
 
 class MainActivity : ComponentActivity() {
 
@@ -37,8 +38,11 @@ class MainActivity : ComponentActivity() {
             val darkTheme = isSystemInDarkTheme()
             val colorScheme = when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                    if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                    if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(
+                        context
+                    )
                 }
+
                 darkTheme -> darkColorScheme()
                 else -> lightColorScheme()
             }
@@ -50,7 +54,11 @@ class MainActivity : ComponentActivity() {
                     val pickerVM: BookPickerViewModel = viewModel()
                     val readerVM: ReaderViewModel = viewModel()
                     val settingsVM: ReaderSettingsViewModel = viewModel()
-                    var selectedBook by rememberSaveable(stateSaver = BookSaver) { mutableStateOf<Book?>(null) }
+                    var selectedBook by rememberSaveable(stateSaver = BookSaver) {
+                        mutableStateOf(
+                            null
+                        )
+                    }
 
                     val folderPickerLauncher = rememberLauncherForActivityResult(
                         ActivityResultContracts.OpenDocumentTree()
@@ -87,13 +95,22 @@ class MainActivity : ComponentActivity() {
 }
 
 private val BookSaver = Saver<Book?, Any>(
-    save = { it?.let { book -> listOf(book.id, book.title, book.uri.toString(), book.format.name) } },
+    save = {
+        it?.let { book ->
+            listOf(
+                book.id,
+                book.title,
+                book.uri.toString(),
+                book.format.name
+            )
+        }
+    },
     restore = { value ->
         val saved = value as List<*>
         Book(
             saved[0] as String,
             saved[1] as String,
-            Uri.parse(saved[2] as String),
+            (saved[2] as String).toUri(),
             BookFormat.valueOf(saved[3] as String)
         )
     }

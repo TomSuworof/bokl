@@ -4,11 +4,11 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.compose.ui.text.AnnotatedString
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
 import java.io.IOException
 import java.util.zip.ZipFile
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 data class BookContent(
     val text: AnnotatedString,
@@ -45,12 +45,14 @@ class BookRepository(private val context: Context) {
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
                 val format = detectFormat(name)
                 if (format != BookFormat.UNSUPPORTED) {
-                    books.add(Book(
-                        id = docId,
-                        title = name.removeSuffix(".txt").removeSuffix(".epub"),
-                        uri = fileUri,
-                        format = format
-                    ))
+                    books.add(
+                        Book(
+                            id = docId,
+                            title = name.removeSuffix(".txt").removeSuffix(".epub"),
+                            uri = fileUri,
+                            format = format
+                        )
+                    )
                 }
             }
         }
@@ -75,7 +77,7 @@ class BookRepository(private val context: Context) {
 
     private fun extractCoverFromEpubFile(epubFile: File, cacheKey: String?): String? {
         val zipFile = ZipFile(epubFile)
-        try {
+        zipFile.use { zipFile ->
             val containerEntry = zipFile.getEntry("META-INF/container.xml") ?: return null
             val containerXml = zipFile.getInputStream(containerEntry).bufferedReader().readText()
             val opfPath = parseContainerXml(containerXml) ?: return null
@@ -83,8 +85,6 @@ class BookRepository(private val context: Context) {
             val opfEntry = zipFile.getEntry(opfPath) ?: return null
             val opfXml = zipFile.getInputStream(opfEntry).bufferedReader().readText()
             return extractCoverFromOpf(zipFile, basePath, parseOpf(opfXml), cacheKey)
-        } finally {
-            zipFile.close()
         }
     }
 
@@ -102,11 +102,14 @@ class BookRepository(private val context: Context) {
     }
 
     private fun readTxt(uri: Uri): String {
-        return context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+        return context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            ?: ""
     }
 
     private fun readEpub(uri: Uri, bookId: String): BookContent =
-        withEpubFile(uri, onError = { e -> BookContent(AnnotatedString("Error reading EPUB: ${e.message}")) }) {
+        withEpubFile(
+            uri,
+            onError = { e -> BookContent(AnnotatedString("Error reading EPUB: ${e.message}")) }) {
             parseEpub(it, bookId)
         }
 
@@ -127,7 +130,7 @@ class BookRepository(private val context: Context) {
     private fun parseEpub(epubFile: File, bookId: String): BookContent {
         val zipFile = ZipFile(epubFile)
 
-        try {
+        zipFile.use { zipFile ->
             val containerEntry = zipFile.getEntry("META-INF/container.xml")
                 ?: return BookContent(AnnotatedString("Invalid EPUB: missing container.xml"))
             val containerXml = zipFile.getInputStream(containerEntry).bufferedReader().readText()
@@ -152,12 +155,16 @@ class BookRepository(private val context: Context) {
                     val (chapter, trailingMargin) = EpubStyler.renderChapterAndTrailingMargin(
                         html = html,
                         loadCss = { cssHref ->
-                            if (cssHref.startsWith("http") || cssHref.startsWith("//") || cssHref.startsWith("data:")) {
+                            if (cssHref.startsWith("http") || cssHref.startsWith("//") || cssHref.startsWith(
+                                    "data:"
+                                )
+                            ) {
                                 return@renderChapterAndTrailingMargin null
                             }
                             val cssPath = resolvePath(chapterDir, cssHref)
                             zipFile.getEntry(cssPath)?.let { cssEntry ->
-                                zipFile.getInputStream(cssEntry).use { it.bufferedReader().readText() }
+                                zipFile.getInputStream(cssEntry)
+                                    .use { it.bufferedReader().readText() }
                             }
                         },
                         isFirstChapter = firstChapter,
@@ -173,8 +180,6 @@ class BookRepository(private val context: Context) {
 
             val coverPath = extractCoverFromOpf(zipFile, basePath, opfData, bookId)
             return BookContent(builder.toAnnotatedString().trimEndIfNeeded(), coverPath)
-        } finally {
-            zipFile.close()
         }
     }
 
@@ -268,18 +273,23 @@ class BookRepository(private val context: Context) {
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             if (parser.eventType == XmlPullParser.START_TAG) {
                 when (parser.name) {
-                    "itemref" -> parser.getAttributeValue(null, "idref")?.let { spineIdrefs.add(it) }
+                    "itemref" -> parser.getAttributeValue(null, "idref")
+                        ?.let { spineIdrefs.add(it) }
+
                     "item" -> {
                         val id = parser.getAttributeValue(null, "id")
                         val href = parser.getAttributeValue(null, "href")
                         if (id != null && href != null) idToHref[id] = href
                     }
+
                     "meta" -> {
                         when {
                             parser.getAttributeValue(null, "name") == "cover" ->
                                 coverId = parser.getAttributeValue(null, "content")
+
                             parser.getAttributeValue(null, "property") == "cover" ->
-                                coverId = parser.getAttributeValue(null, "refines")?.removePrefix("#")
+                                coverId =
+                                    parser.getAttributeValue(null, "refines")?.removePrefix("#")
                         }
                     }
                 }

@@ -1,6 +1,5 @@
 package com.salat.bokl
 
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -12,7 +11,10 @@ import org.junit.Test
 
 class EpubStylerTest {
 
-    private fun render(html: String, isFirstChapter: Boolean = true): androidx.compose.ui.text.AnnotatedString {
+    private fun render(
+        html: String,
+        isFirstChapter: Boolean = true
+    ): androidx.compose.ui.text.AnnotatedString {
         return EpubStyler.renderChapter(html, { null }, isFirstChapter)
     }
 
@@ -67,7 +69,7 @@ class EpubStylerTest {
         val subStyle = result.spanStyles.first {
             it.start <= subStart && subStart < it.end
         }
-        assertEquals(FontStyle.Italic, subStyle.item.fontStyle)
+        assertEquals(FontStyle.Italic.value, subStyle.item.fontStyle?.value)
 
         assertTrue(result.paragraphStyles.any {
             it.item.textAlign == TextAlign.Justify
@@ -92,7 +94,8 @@ class EpubStylerTest {
             <body><p>Обычный.</p><p class="plain">Без отступа.</p></body></html>"""
         )
         val indentedStart = result.text.indexOf("Обычный.")
-        val indented = result.paragraphStyles.first { it.start <= indentedStart && indentedStart < it.end }
+        val indented =
+            result.paragraphStyles.first { it.start <= indentedStart && indentedStart < it.end }
         assertEquals(1.5f, indented.item.textIndent?.firstLine?.value)
 
         val plainStart = result.text.indexOf("Без отступа.")
@@ -102,7 +105,8 @@ class EpubStylerTest {
 
     @Test
     fun `single css rule applies em font size once`() {
-        val css = ".title3 { font-size: 1.3em; font-weight: bold; text-align: left; } .p { text-align: justify; }"
+        val css =
+            ".title3 { font-size: 1.3em; font-weight: bold; text-align: left; } .p { text-align: justify; }"
         val result = render(
             """<html><head><style>$css</style></head><body><div class="title3"><p class="p">V</p></div></body></html>"""
         )
@@ -114,7 +118,8 @@ class EpubStylerTest {
 
     @Test
     fun `duplicate css rules apply em font size once`() {
-        val css = ".title3 { font-size: 1.3em; font-weight: bold; text-align: left; } .p { text-align: justify; }"
+        val css =
+            ".title3 { font-size: 1.3em; font-weight: bold; text-align: left; } .p { text-align: justify; }"
         val result = render(
             """<html><head><style>$css</style><style>$css</style></head><body><div class="title3"><p class="p">V</p></div></body></html>"""
         )
@@ -200,7 +205,8 @@ class EpubStylerTest {
 
     @Test
     fun `first chapter skips leading title margin`() {
-        val css = ".title2 { font-size: 1.5em; margin: 1em 0px 0.5em 1.563em; } .p { margin: 0px 0px 0.5em 0px; } .p1 { margin: 0px; }"
+        val css =
+            ".title2 { font-size: 1.5em; margin: 1em 0px 0.5em 1.563em; } .p { margin: 0px 0px 0.5em 0px; } .p1 { margin: 0px; }"
         val html = """<html><head><style>$css</style></head><body>
             <div class="title2"><p class="p">Chapter</p></div>
             <p class="p1">Body.</p>
@@ -214,7 +220,8 @@ class EpubStylerTest {
 
     @Test
     fun `poem stanzas are separated by collapsed margins`() {
-        val css = ".poem { margin: 0.5em 0px 0.5em 2em; } .stanza { margin: 0.5em 0px; } .v { margin: 0px; }"
+        val css =
+            ".poem { margin: 0.5em 0px 0.5em 2em; } .stanza { margin: 0.5em 0px; } .v { margin: 0px; }"
         val html = """<html><head><style>$css</style></head><body>
             <div class="poem">
             <div class="stanza"><p class="v">a</p><p class="v">b</p></div>
@@ -321,7 +328,7 @@ class EpubStylerTest {
         val underStart = result.text.indexOf("подчёркнуто")
         assertTrue(result.spanStyles.any {
             it.start <= underStart && underStart < it.end &&
-                it.item.textDecoration == TextDecoration.Underline
+                    it.item.textDecoration == TextDecoration.Underline
         })
 
         val comboStart = result.text.indexOf("жирный курсив")

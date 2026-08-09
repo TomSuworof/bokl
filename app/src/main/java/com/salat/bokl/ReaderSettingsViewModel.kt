@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.core.content.edit
 
 enum class ReaderBackground(
     val background: Color,
@@ -31,7 +32,7 @@ class ReaderSettingsViewModel(application: Application) : AndroidViewModel(appli
     val background: StateFlow<ReaderBackground> = _background.asStateFlow()
 
     fun setBackground(background: ReaderBackground) {
-        prefs.edit().putString("background", background.name).apply()
+        prefs.edit { putString("background", background.name) }
         _background.value = background
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -157,7 +158,8 @@ private fun CacheDrawScope.prepareCurl(
     val lineVector = topCurlOffset - bottomCurlOffset
     val angle = PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2
 
-    val drawShadow = prepareShadow(shadowAlpha, shadowRadius, shadowOffset, polygon, angle, bitmapCache)
+    val drawShadow =
+        prepareShadow(shadowAlpha, shadowRadius, shadowOffset, polygon, angle, bitmapCache)
 
     return result@{
         withTransform({
@@ -238,7 +240,7 @@ internal class BitmapCache {
         if (current != null && !current.isRecycled && current.width == width && current.height == height) {
             return current
         }
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { cached = it }
+        return createBitmap(width, height).also { cached = it }
     }
 }
 
@@ -327,7 +329,8 @@ private fun lineLineIntersection(
     line2a: Offset,
     line2b: Offset,
 ): Offset? {
-    val denominator = (line1a.x - line1b.x) * (line2a.y - line2b.y) - (line1a.y - line1b.y) * (line2a.x - line2b.x)
+    val denominator =
+        (line1a.x - line1b.x) * (line2a.y - line2b.y) - (line1a.y - line1b.y) * (line2a.x - line2b.x)
     if (denominator == 0f) return null
 
     val x1 = (line1a.x * line1b.y - line1a.y * line1b.x) * (line2a.x - line2b.x)

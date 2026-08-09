@@ -3,6 +3,8 @@ package com.salat.bokl
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -41,24 +43,26 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
         if (uriString == null) {
             _state.value = _state.value.copy(isFirstLaunch = true, isLoading = false)
         } else {
-            val uri = Uri.parse(uriString)
+            val uri = uriString.toUri()
             if (isGrantPersisted(uri)) {
                 _state.value = _state.value.copy(folderUri = uri)
                 loadBooks(uri)
             } else {
-                prefs.edit().remove(folderKey).apply()
+                prefs.edit { remove(folderKey) }
                 _state.value = _state.value.copy(isFirstLaunch = true, isLoading = false)
             }
         }
     }
 
     fun onFolderSelected(uri: Uri) {
-        val editor = prefs.edit().remove(folderKey)
-        if (persistPermissions(uri)) {
-            editor.putString(folderKey, uri.toString())
-                .putInt(takeFlagsKey, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val persisted = persistPermissions(uri)
+        prefs.edit {
+            remove(folderKey)
+            if (persisted) {
+                putString(folderKey, uri.toString())
+                    .putInt(takeFlagsKey, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
         }
-        editor.apply()
         _state.value = _state.value.copy(folderUri = uri, isFirstLaunch = false)
         loadBooks(uri)
     }
@@ -74,7 +78,7 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
         return try {
             context.contentResolver.takePersistableUriPermission(uri, takeFlags)
             true
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             false
         }
     }
@@ -96,7 +100,8 @@ class BookPickerViewModel(application: Application) : AndroidViewModel(applicati
                 val progress = books.mapNotNull { book ->
                     progressStore.load(book.id)?.let { book.id to it }
                 }.toMap()
-                _state.value = _state.value.copy(books = books, progress = progress, isLoading = false)
+                _state.value =
+                    _state.value.copy(books = books, progress = progress, isLoading = false)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     isLoading = false,

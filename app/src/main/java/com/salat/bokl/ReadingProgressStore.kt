@@ -2,6 +2,7 @@ package com.salat.bokl
 
 import android.content.SharedPreferences
 import kotlin.math.roundToInt
+import androidx.core.content.edit
 
 data class ReadingProgress(
     val page: Int,
@@ -18,10 +19,10 @@ data class ReadingProgress(
 class ReadingProgressStore(private val prefs: SharedPreferences) {
 
     fun save(bookId: String, page: Int, totalPages: Int) {
-        prefs.edit()
-            .putInt(pageKey(bookId), page)
-            .putInt(totalKey(bookId), totalPages)
-            .apply()
+        prefs.edit {
+            putInt(pageKey(bookId), page)
+                .putInt(totalKey(bookId), totalPages)
+        }
     }
 
     fun load(bookId: String): ReadingProgress? {

@@ -10,11 +10,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.em
-import kotlin.math.abs
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
+import kotlin.math.abs
 
 private const val FONT_NORMAL = 0
 private const val FONT_ITALIC = 1
@@ -72,7 +72,8 @@ internal object EpubStyler {
         loadCss: (String) -> String?,
         isFirstChapter: Boolean = true,
         previousBottomMarginEm: Float = 0f
-    ): AnnotatedString = renderChapterAndTrailingMargin(html, loadCss, isFirstChapter, previousBottomMarginEm).first
+    ): AnnotatedString =
+        renderChapterAndTrailingMargin(html, loadCss, isFirstChapter, previousBottomMarginEm).first
 
     internal fun renderChapterAndTrailingMargin(
         html: String,
@@ -119,7 +120,9 @@ internal object EpubStyler {
         }
         removedBefore[text.length] = removed
         fun mapStart(start: Int) = start - removedBefore[start]
-        fun mapEnd(start: Int, end: Int) = mapStart(start) + (end - start - (removedBefore[end] - removedBefore[start]))
+        fun mapEnd(start: Int, end: Int) =
+            mapStart(start) + (end - start - (removedBefore[end] - removedBefore[start]))
+
         val spans = annotated.spanStyles.map { r ->
             AnnotatedString.Range(r.item, mapStart(r.start), mapEnd(r.start, r.end))
         }
@@ -132,7 +135,7 @@ internal object EpubStyler {
     private fun isExternalPath(href: String): Boolean {
         val lower = href.lowercase()
         return lower.startsWith("http://") || lower.startsWith("https://") ||
-            lower.startsWith("//") || lower.startsWith("data:")
+                lower.startsWith("//") || lower.startsWith("data:")
     }
 
     private fun renderNode(
@@ -190,9 +193,20 @@ internal object EpubStyler {
             acc.endBlock()
             if (isParagraph && paraStart >= 0 && acc.text.length > paraStart) {
                 if (isEmptyPara && style.blockHeightBaseEm != null) {
-                    acc.addParagraphRanges(paraStart, acc.text.length, null, null, style.blockHeightBaseEm)
+                    acc.addParagraphRanges(
+                        paraStart,
+                        acc.text.length,
+                        null,
+                        null,
+                        style.blockHeightBaseEm
+                    )
                 } else {
-                    acc.addParagraphRanges(paraStart, acc.text.length, style.textAlign, style.textIndentEm?.times(style.fontSizeScale))
+                    acc.addParagraphRanges(
+                        paraStart,
+                        acc.text.length,
+                        style.textAlign,
+                        style.textIndentEm?.times(style.fontSizeScale)
+                    )
                 }
                 acc.pendingBottomBaseEm = marginBottom
             }
@@ -263,7 +277,11 @@ internal object EpubStyler {
         }
     }
 
-    private fun computeStyle(elem: Element, parent: ComputedStyle, rules: List<CssRule>): ComputedStyle {
+    private fun computeStyle(
+        elem: Element,
+        parent: ComputedStyle,
+        rules: List<CssRule>
+    ): ComputedStyle {
         val tag = elem.tagName().lowercase()
         var style = applyTagDefaults(parent, tag)
 
@@ -272,14 +290,14 @@ internal object EpubStyler {
             .sortedWith(compareBy({ it.specificity }, { it.order }))
             .forEach { rule ->
                 for ((prop, value) in rule.declarations) {
-                    style = applyDeclaration(style, prop, value, parent)
+                    style = applyDeclaration(style, prop, value)
                 }
             }
 
         val inline = elem.attr("style")
         if (inline.isNotBlank()) {
             for ((prop, value) in parseDeclarations(inline)) {
-                style = applyDeclaration(style, prop, value, parent)
+                style = applyDeclaration(style, prop, value)
             }
         }
         return style
@@ -315,22 +333,28 @@ internal object EpubStyler {
         return s
     }
 
-    private fun applyDeclaration(style: ComputedStyle, prop: String, value: String, parent: ComputedStyle): ComputedStyle {
+    private fun applyDeclaration(style: ComputedStyle, prop: String, value: String): ComputedStyle {
         return when (prop) {
             "font-weight" -> {
                 val v = value.lowercase()
-                val weight = when {
-                    v == "bold" -> 700
-                    v == "normal" -> 400
-                    v == "bolder" -> if (style.fontWeight >= 700) 900 else 700
-                    v == "lighter" -> if (style.fontWeight <= 400) 100 else 400
+                val weight = when (v) {
+                    "bold" -> 700
+                    "normal" -> 400
+                    "bolder" -> if (style.fontWeight >= 700) 900 else 700
+                    "lighter" -> if (style.fontWeight <= 400) 100 else 400
                     else -> v.toIntOrNull()?.coerceIn(100, 900) ?: style.fontWeight
                 }
                 style.copy(fontWeight = weight)
             }
+
             "font-style" -> style.copy(
-                fontStyle = if (value.lowercase() in setOf("italic", "oblique")) FONT_ITALIC else FONT_NORMAL
+                fontStyle = if (value.lowercase() in setOf(
+                        "italic",
+                        "oblique"
+                    )
+                ) FONT_ITALIC else FONT_NORMAL
             )
+
             "text-decoration" -> {
                 val v = value.lowercase()
                 if (v.contains("none")) {
@@ -342,18 +366,39 @@ internal object EpubStyler {
                     )
                 }
             }
+
             "font-size" -> {
                 val (relative, size) = parseFontSize(value)
                 style.copy(fontSizeScale = if (relative) style.fontSizeScale * size else size)
             }
+
             "text-indent" -> style.copy(textIndentEm = parseTextIndent(value))
             "margin" -> {
                 val (top, bottom) = parseMarginShorthand(value, style.fontSizeScale)
                 style.copy(marginTopBaseEm = top, marginBottomBaseEm = bottom)
             }
-            "margin-top" -> style.copy(marginTopBaseEm = parseLengthBaseEm(value, style.fontSizeScale) ?: style.marginTopBaseEm)
-            "margin-bottom" -> style.copy(marginBottomBaseEm = parseLengthBaseEm(value, style.fontSizeScale) ?: style.marginBottomBaseEm)
-            "height" -> style.copy(blockHeightBaseEm = parseLengthBaseEm(value, style.fontSizeScale))
+
+            "margin-top" -> style.copy(
+                marginTopBaseEm = parseLengthBaseEm(
+                    value,
+                    style.fontSizeScale
+                ) ?: style.marginTopBaseEm
+            )
+
+            "margin-bottom" -> style.copy(
+                marginBottomBaseEm = parseLengthBaseEm(
+                    value,
+                    style.fontSizeScale
+                ) ?: style.marginBottomBaseEm
+            )
+
+            "height" -> style.copy(
+                blockHeightBaseEm = parseLengthBaseEm(
+                    value,
+                    style.fontSizeScale
+                )
+            )
+
             "text-align" -> style.copy(
                 textAlign = when (value.lowercase()) {
                     "left" -> TextAlign.Left
@@ -363,6 +408,7 @@ internal object EpubStyler {
                     else -> style.textAlign
                 }
             )
+
             else -> style
         }
     }
@@ -534,7 +580,9 @@ internal object EpubStyler {
     private fun matchesCompound(elem: Element, compound: CssCompound): Boolean {
         if (compound.id != null && elem.id() != compound.id) return false
         if (compound.classes.isNotEmpty() && compound.classes.any { !elem.hasClass(it) }) return false
-        if (compound.tags.isNotEmpty() && compound.tags.none { elem.tagName().equals(it, true) }) return false
+        if (compound.tags.isNotEmpty() && compound.tags.none {
+                elem.tagName().equals(it, true)
+            }) return false
         return true
     }
 
@@ -543,7 +591,8 @@ internal object EpubStyler {
         var style = SpanStyle()
         if (fontWeight != 400) style = style.merge(SpanStyle(fontWeight = FontWeight(fontWeight)))
         if (fontStyle == FONT_ITALIC) style = style.merge(SpanStyle(fontStyle = FontStyle.Italic))
-        if (abs(fontSizeScale - 1f) > 0.01f) style = style.merge(SpanStyle(fontSize = fontSizeScale.em))
+        if (abs(fontSizeScale - 1f) > 0.01f) style =
+            style.merge(SpanStyle(fontSize = fontSizeScale.em))
         if (baselineShift != null) style = style.merge(SpanStyle(baselineShift = baselineShift))
         if (underline) styles.add(style.merge(SpanStyle(textDecoration = TextDecoration.Underline)))
         if (lineThrough) styles.add(style.merge(SpanStyle(textDecoration = TextDecoration.LineThrough)))
@@ -560,7 +609,8 @@ internal object EpubStyler {
         val paragraphs = mutableListOf<AnnotatedString.Range<ParagraphStyle>>()
         var atLineStart = true
             private set
-        var pendingBottomBaseEm = if (skipTopIfEmpty) 0f else maxOf(previousBottomMarginEm, CHAPTER_GAP_FLOOR_EM)
+        var pendingBottomBaseEm =
+            if (skipTopIfEmpty) 0f else maxOf(previousBottomMarginEm, CHAPTER_GAP_FLOOR_EM)
 
         fun appendText(s: String) {
             val clean = if (atLineStart) s.trimStart() else s
@@ -597,21 +647,36 @@ internal object EpubStyler {
             val start = text.length
             text.append(ZERO_WIDTH_SPACE)
             atLineStart = true
-            paragraphs.add(AnnotatedString.Range(ParagraphStyle(lineHeight = em.em), start, start + 1))
+            paragraphs.add(
+                AnnotatedString.Range(
+                    ParagraphStyle(lineHeight = em.em),
+                    start,
+                    start + 1
+                )
+            )
         }
 
         fun resolveParagraphGap(topBaseEm: Float) {
-            val gap = if (skipTopIfEmpty && text.isEmpty()) 0f else maxOf(pendingBottomBaseEm, topBaseEm)
+            val gap =
+                if (skipTopIfEmpty && text.isEmpty()) 0f else maxOf(pendingBottomBaseEm, topBaseEm)
             pendingBottomBaseEm = 0f
             addSpacing(gap)
         }
 
-        fun addParagraphRanges(start: Int, end: Int, align: TextAlign?, textIndentEm: Float?, lineHeightEm: Float? = null) {
+        fun addParagraphRanges(
+            start: Int,
+            end: Int,
+            align: TextAlign?,
+            textIndentEm: Float?,
+            lineHeightEm: Float? = null
+        ) {
             if (align == null && textIndentEm == null && lineHeightEm == null) return
             var paragraphStyle = ParagraphStyle()
-            if (align != null) paragraphStyle = paragraphStyle.merge(ParagraphStyle(textAlign = align))
+            if (align != null) paragraphStyle =
+                paragraphStyle.merge(ParagraphStyle(textAlign = align))
             if (textIndentEm != null) {
-                paragraphStyle = paragraphStyle.merge(ParagraphStyle(textIndent = TextIndent(firstLine = textIndentEm.em)))
+                paragraphStyle =
+                    paragraphStyle.merge(ParagraphStyle(textIndent = TextIndent(firstLine = textIndentEm.em)))
             }
             if (lineHeightEm != null) {
                 paragraphStyle = paragraphStyle.merge(ParagraphStyle(lineHeight = lineHeightEm.em))
@@ -620,7 +685,11 @@ internal object EpubStyler {
         }
 
         fun toAnnotatedString(): AnnotatedString {
-            return AnnotatedString(text.toString(), spanStyles = spans, paragraphStyles = paragraphs)
+            return AnnotatedString(
+                text.toString(),
+                spanStyles = spans,
+                paragraphStyles = paragraphs
+            )
         }
     }
 }

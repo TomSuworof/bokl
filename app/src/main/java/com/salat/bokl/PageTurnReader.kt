@@ -40,7 +40,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -87,7 +86,7 @@ fun PageTurnReader(
     val totalPages = pages.size + coverOffset
     var fold by remember { mutableStateOf(Fold(Offset.Zero, Offset.Zero)) }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
-    var turnDirection by remember { mutableStateOf(0) }
+    var turnDirection by remember { mutableIntStateOf(0) }
     var turnStartPage by remember { mutableIntStateOf(0) }
     var currentPage by remember { mutableIntStateOf(0) }
     var initialized by remember { mutableStateOf(false) }
@@ -137,7 +136,7 @@ fun PageTurnReader(
 
     fun startTurn(direction: Int) {
         val target = currentPage + direction
-        if (target < 0 || target >= latestTotalPages) return
+        if (target !in 0..<latestTotalPages) return
         turnStartPage = currentPage
         commitPage(direction)
         turnDirection = direction
@@ -205,20 +204,36 @@ fun PageTurnReader(
                             if (abs(cumulative.x) > viewConfiguration.touchSlop) {
                                 direction = if (cumulative.x < 0) 1 else -1
                                 val target = currentPage + direction
-                                if (target < 0 || target >= latestTotalPages) {
+                                if (target !in 0..<latestTotalPages) {
                                     abandoned = true
                                     break
                                 }
                                 dragStarted = true
-                                dragValue = dragProgress(currentSize(), down.position, change.position, direction)
+                                dragValue = dragProgress(
+                                    currentSize(),
+                                    down.position,
+                                    change.position,
+                                    direction
+                                )
                                 turnStartPage = currentPage
                                 turnDirection = direction
                                 turnJob?.cancel()
-                                fold = dragFold(currentSize(), down.position, change.position, direction)
+                                fold = dragFold(
+                                    currentSize(),
+                                    down.position,
+                                    change.position,
+                                    direction
+                                )
                             }
                         } else {
-                            dragValue = dragProgress(currentSize(), down.position, change.position, direction)
-                            fold = dragFold(currentSize(), down.position, change.position, direction)
+                            dragValue = dragProgress(
+                                currentSize(),
+                                down.position,
+                                change.position,
+                                direction
+                            )
+                            fold =
+                                dragFold(currentSize(), down.position, change.position, direction)
                             change.consume()
                         }
                     }
@@ -364,7 +379,7 @@ private fun PageSurface(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = PageNumberBottomPadding + bottomInset),
                 style = MaterialTheme.typography.labelMedium,
-                color = (textStyle.color ?: Color.Black).copy(alpha = 0.6f)
+                color = textStyle.color.copy(alpha = 0.6f)
             )
         }
     }
@@ -376,7 +391,10 @@ private data class Fold(val top: Offset, val bottom: Offset) {
         fun lerp(a: Fold, b: Fold, t: Float): Fold =
             Fold(
                 Offset(a.top.x + (b.top.x - a.top.x) * t, a.top.y + (b.top.y - a.top.y) * t),
-                Offset(a.bottom.x + (b.bottom.x - a.bottom.x) * t, a.bottom.y + (b.bottom.y - a.bottom.y) * t)
+                Offset(
+                    a.bottom.x + (b.bottom.x - a.bottom.x) * t,
+                    a.bottom.y + (b.bottom.y - a.bottom.y) * t
+                )
             )
     }
 }
