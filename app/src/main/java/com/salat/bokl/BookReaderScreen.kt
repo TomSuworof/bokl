@@ -421,6 +421,7 @@ private fun PaginatedReader(
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val layoutStyle = remember(textStyle) { textStyle.copy(color = Color.Unspecified) }
     var readingSize by remember { mutableStateOf(IntSize.Zero) }
     val pages = remember(content) { mutableStateListOf<AnnotatedString>() }
     var isPaginationComplete by remember { mutableStateOf(false) }
@@ -432,7 +433,7 @@ private fun PaginatedReader(
     val textTopPaddingPx = with(density) { PageTopPadding.roundToPx() } + topInsetPx
     val footerHeightPx = with(density) { PageFooterHeight.roundToPx() } + bottomInsetPx
 
-    LaunchedEffect(content, textStyle, readingSize) {
+    LaunchedEffect(content, layoutStyle, readingSize) {
         isPaginationComplete = false
         pages.clear()
         if (content.isEmpty()) return@LaunchedEffect
@@ -447,7 +448,7 @@ private fun PaginatedReader(
                 content = content,
                 offset = offset,
                 measurer = textMeasurer,
-                textStyle = textStyle,
+                textStyle = layoutStyle,
                 widthPx = widthPx,
                 heightPx = heightPx
             )
