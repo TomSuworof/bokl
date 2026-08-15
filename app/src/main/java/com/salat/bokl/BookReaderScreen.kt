@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -31,12 +32,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
@@ -252,6 +256,17 @@ fun BookReaderScreen(
             modifier = Modifier.align(Alignment.TopEnd)
         )
     }
+
+    val activeAnnotation = state.activeAnnotation
+    if (activeAnnotation != null) {
+        AnnotationDialog(
+            number = activeAnnotation,
+            text = state.annotations[activeAnnotation].orEmpty(),
+            paperColor = paperColor,
+            textColor = textColor,
+            onDismiss = viewModel::dismissAnnotation
+        )
+    }
 }
 
 @Composable
@@ -349,6 +364,48 @@ private fun BackgroundColorSwatch(
             )
         }
     }
+}
+
+@Composable
+private fun AnnotationDialog(
+    number: Int,
+    text: String,
+    paperColor: Color,
+    textColor: Color,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = paperColor,
+        titleContentColor = textColor,
+        textContentColor = textColor,
+        title = {
+            Text(
+                text = "Annotation $number",
+                style = MaterialTheme.typography.titleMedium,
+                color = textColor
+            )
+        },
+        text = {
+            Text(
+                text = text,
+                modifier = Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState()),
+                style = TextStyle(
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 16.sp,
+                    lineHeight = 22.sp,
+                    color = textColor
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = textColor)
+            }
+        }
+    )
 }
 
 @Composable
@@ -530,43 +587,67 @@ private fun appendParagraphContinuationPad(page: AnnotatedString): AnnotatedStri
     val pad = paragraphContinuationPad()
     val padded = page + pad
     if (padded.paragraphStyles.isEmpty()) {
-        return AnnotatedString(
-            padded.text,
-            padded.spanStyles,
-            listOf(AnnotatedString.Range(ParagraphStyle(), 0, padded.length))
-        )
+        val builder = AnnotatedString.Builder(padded.text)
+        copySpanStylesAndLinks(padded, builder)
+        builder.addStyle(ParagraphStyle(), 0, padded.length)
+        return builder.toAnnotatedString()
     }
-    val styles = padded.paragraphStyles.toMutableList()
-    val lastIndex = styles.size - 1
-    val last = styles[lastIndex]
-    styles[lastIndex] = AnnotatedString.Range(last.item, last.start, last.end + pad.length)
-    return AnnotatedString(padded.text, padded.spanStyles, styles)
+    val last = padded.paragraphStyles.maxByOrNull { it.end } ?: return padded
+    return rebuildWithParagraphs(padded) { range ->
+        if (range === last) {
+            range.copy(end = range.end + pad.length)
+        } else {
+            range
+        }
+    }
 }
 
 private fun stripFirstLineIndent(text: AnnotatedString): AnnotatedString {
     if (text.isEmpty() || text.paragraphStyles.isEmpty()) return text
-    var changed = false
-    val newStyles = mutableListOf<AnnotatedString.Range<ParagraphStyle>>()
-    for (r in text.paragraphStyles) {
-        if (r.start == 0) {
-            val indent = r.item.textIndent
-            if (indent != null && indent.firstLine.value > 0f) {
-                newStyles.add(
-                    r.copy(
-                        item = r.item.copy(
-                            textIndent = TextIndent(
-                                firstLine = 0.em,
-                                restLine = indent.restLine
-                            )
-                        )
-                    )
+    val target = text.paragraphStyles.firstOrNull { it.start == 0 } ?: return text
+    val indent = target.item.textIndent ?: return text
+    if (indent.firstLine.value <= 0f) return text
+    return rebuildWithParagraphs(text) { range ->
+        if (range === target) {
+            range.copy(
+                item = range.item.copy(
+                    textIndent = TextIndent(firstLine = 0.em, restLine = indent.restLine)
                 )
-                changed = true
-                continue
-            }
+            )
+        } else {
+            range
         }
-        newStyles.add(r)
     }
-    if (!changed) return text
-    return AnnotatedString(text.text, text.spanStyles, newStyles)
+}
+
+private fun rebuildWithParagraphs(
+    text: AnnotatedString,
+    transform: (AnnotatedString.Range<ParagraphStyle>) -> AnnotatedString.Range<ParagraphStyle>
+): AnnotatedString {
+    val builder = AnnotatedString.Builder(text.text)
+    for (range in text.spanStyles) {
+        builder.addStyle(range.item, range.start, range.end)
+    }
+    for (range in text.paragraphStyles) {
+        val transformed = transform(range)
+        builder.addStyle(transformed.item, transformed.start, transformed.end)
+    }
+    copyLinkAnnotations(text, builder)
+    return builder.toAnnotatedString()
+}
+
+private fun copySpanStylesAndLinks(from: AnnotatedString, to: AnnotatedString.Builder) {
+    for (range in from.spanStyles) {
+        to.addStyle(range.item, range.start, range.end)
+    }
+    copyLinkAnnotations(from, to)
+}
+
+private fun copyLinkAnnotations(from: AnnotatedString, to: AnnotatedString.Builder) {
+    for (range in from.getLinkAnnotations(0, from.length)) {
+        when (val link = range.item) {
+            is LinkAnnotation.Clickable -> to.addLink(link, range.start, range.end)
+            is LinkAnnotation.Url -> to.addLink(link, range.start, range.end)
+        }
+    }
 }

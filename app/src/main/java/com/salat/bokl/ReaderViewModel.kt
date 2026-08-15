@@ -19,6 +19,8 @@ data class ReaderState(
     val bookId: String? = null,
     val content: AnnotatedString = AnnotatedString(""),
     val coverImagePath: String? = null,
+    val annotations: Map<Int, String> = emptyMap(),
+    val activeAnnotation: Int? = null,
     val isLoading: Boolean = true,
     val error: String? = null,
     val initialPage: Int = 0,
@@ -43,6 +45,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 title = book.title,
                 content = AnnotatedString(""),
                 coverImagePath = null,
+                annotations = emptyMap(),
+                activeAnnotation = null,
                 isLoading = true,
                 error = null,
                 initialPage = progress?.page ?: 0,
@@ -53,9 +57,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 val result = withContext(Dispatchers.IO) {
                     repository.readBookContent(book)
                 }
+                val annotationInfo = result.annotations
+                val content = Annotations.applyLinks(result.text, annotationInfo) { number ->
+                    _state.value = _state.value.copy(activeAnnotation = number)
+                }
                 _state.value = _state.value.copy(
-                    content = result.text,
+                    content = content,
                     coverImagePath = result.coverImagePath,
+                    annotations = annotationInfo.notes,
                     isLoading = false
                 )
             } catch (e: Exception) {
@@ -75,6 +84,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             delay(PROGRESS_SAVE_DELAY_MILLIS.milliseconds)
             progressStore.save(bookId, page, totalPages)
         }
+    }
+
+    fun dismissAnnotation() {
+        _state.value = _state.value.copy(activeAnnotation = null)
     }
 
     override fun onCleared() {

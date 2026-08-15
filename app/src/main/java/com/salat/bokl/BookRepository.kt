@@ -12,7 +12,8 @@ import java.util.zip.ZipFile
 
 data class BookContent(
     val text: AnnotatedString,
-    val coverImagePath: String? = null
+    val coverImagePath: String? = null,
+    val annotations: AnnotationInfo = AnnotationInfo(emptyMap(), emptyList())
 )
 
 private data class OpfData(
@@ -20,6 +21,20 @@ private data class OpfData(
     val idToHref: Map<String, String>,
     val coverId: String?
 )
+
+/** Normalizes a possibly relative EPUB path against a base directory. */
+internal fun resolveEpubPath(basePath: String, href: String): String {
+    val segments = (if (basePath.isEmpty()) href else "$basePath/$href").split("/")
+    val result = mutableListOf<String>()
+    for (segment in segments) {
+        when (segment) {
+            "", "." -> {}
+            ".." -> if (result.isNotEmpty()) result.removeAt(result.size - 1)
+            else -> result.add(segment)
+        }
+    }
+    return result.joinToString("/")
+}
 
 class BookRepository(private val context: Context) {
 
@@ -144,13 +159,15 @@ class BookRepository(private val context: Context) {
             val opfData = parseOpf(opfXml)
 
             val builder = AnnotatedString.Builder()
+            val chapters = mutableListOf<EpubChapter>()
             var firstChapter = true
             var previousBottomMarginEm = 0f
             for (href in opfData.spineHrefs) {
-                val entryPath = resolvePath(basePath, href)
+                val entryPath = resolveEpubPath(basePath, href)
                 val entry = zipFile.getEntry(entryPath)
                 if (entry != null && !isImageEntry(entryPath)) {
                     val html = zipFile.getInputStream(entry).use { it.bufferedReader().readText() }
+                    chapters.add(EpubChapter(entryPath, html))
                     val chapterDir = entryPath.substringBeforeLast("/", missingDelimiterValue = "")
                     val (chapter, trailingMargin) = EpubStyler.renderChapterAndTrailingMargin(
                         html = html,
@@ -161,7 +178,7 @@ class BookRepository(private val context: Context) {
                             ) {
                                 return@renderChapterAndTrailingMargin null
                             }
-                            val cssPath = resolvePath(chapterDir, cssHref)
+                            val cssPath = resolveEpubPath(chapterDir, cssHref)
                             zipFile.getEntry(cssPath)?.let { cssEntry ->
                                 zipFile.getInputStream(cssEntry)
                                     .use { it.bufferedReader().readText() }
@@ -179,7 +196,9 @@ class BookRepository(private val context: Context) {
             }
 
             val coverPath = extractCoverFromOpf(zipFile, basePath, opfData, bookId)
-            return BookContent(builder.toAnnotatedString().trimEndIfNeeded(), coverPath)
+            val text = builder.toAnnotatedString().trimEndIfNeeded()
+            val notes = EpubAnnotations.extractNotes(chapters)
+            return BookContent(text, coverPath, Annotations.analyze(text, notes))
         }
     }
 
@@ -190,19 +209,6 @@ class BookRepository(private val context: Context) {
         return subSequence(0, lastNonWhitespace + 1)
     }
 
-    private fun resolvePath(basePath: String, href: String): String {
-        val segments = (if (basePath.isEmpty()) href else "$basePath/$href").split("/")
-        val result = mutableListOf<String>()
-        for (segment in segments) {
-            when (segment) {
-                "", "." -> {}
-                ".." -> if (result.isNotEmpty()) result.removeAt(result.size - 1)
-                else -> result.add(segment)
-            }
-        }
-        return result.joinToString("/")
-    }
-
     private fun isImageEntry(path: String): Boolean {
         val lower = path.substringAfterLast('.').lowercase()
         return lower == "jpg" || lower == "jpeg" || lower == "png" || lower == "gif" || lower == "webp"
@@ -211,18 +217,18 @@ class BookRepository(private val context: Context) {
     private fun resolveCoverImage(zipFile: ZipFile, basePath: String, opfData: OpfData): String? {
         val coverHref = opfData.coverId?.let { opfData.idToHref[it] }
         if (coverHref != null) {
-            val path = resolvePath(basePath, coverHref)
+            val path = resolveEpubPath(basePath, coverHref)
             if (zipFile.getEntry(path) != null) {
                 if (isImageEntry(path)) return path
                 return findImageInHtml(zipFile, path)
             }
         }
         for (href in opfData.spineHrefs) {
-            val path = resolvePath(basePath, href)
+            val path = resolveEpubPath(basePath, href)
             if (zipFile.getEntry(path) != null && isImageEntry(path)) return path
         }
         if (opfData.spineHrefs.isNotEmpty()) {
-            val first = resolvePath(basePath, opfData.spineHrefs[0])
+            val first = resolveEpubPath(basePath, opfData.spineHrefs[0])
             if (zipFile.getEntry(first) != null) {
                 return findImageInHtml(zipFile, first)
             }
@@ -236,7 +242,7 @@ class BookRepository(private val context: Context) {
         val src = Regex("""<img[^>]+src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
             .find(html)?.groupValues?.get(1) ?: return null
         val baseDir = path.substringBeforeLast("/", missingDelimiterValue = "")
-        return resolvePath(baseDir, src)
+        return resolveEpubPath(baseDir, src)
     }
 
     private fun extractImage(zipFile: ZipFile, path: String): String {
