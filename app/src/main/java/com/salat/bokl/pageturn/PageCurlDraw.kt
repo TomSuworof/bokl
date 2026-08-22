@@ -1,4 +1,4 @@
-package com.salat.bokl
+package com.salat.bokl.pageturn
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
